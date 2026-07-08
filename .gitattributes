@@ -1,0 +1,4 @@
+# Normalize line endings to LF everywhere so the Windows dev machine and
+# the Linux CI runner agree on file contents (ruff format --check is byte-exact).
+* text=auto eol=lf
+*.parquet binary
