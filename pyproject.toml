@@ -3,8 +3,9 @@ name = "volrisk"
 version = "0.1.0"
 description = "Volatility forecasting and risk analytics engine: daily OHLCV ingestion, next-day volatility forecasts (EWMA, GARCH, HAR-RV, LightGBM), and 1-day VaR with coverage backtesting."
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11"
-authors = [{ name = "Aakrisht" }]
+authors = [{ name = "Aakrisht Yadav" }]
 dependencies = []
 
 [build-system]
