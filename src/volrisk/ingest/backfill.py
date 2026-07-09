@@ -20,6 +20,7 @@ import pandas as pd
 
 from volrisk.providers.base import OHLCVProvider
 from volrisk.providers.yfinance_provider import YFinanceProvider
+from volrisk.validate.schemas import validate_daily_bars
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,11 @@ def backfill_ticker(
     tmp = target.with_suffix(".parquet.tmp")
     df.to_parquet(tmp, index=False)
     tmp.replace(target)  # atomic on the same filesystem; no half-written landing files
-    logger.info("%s: wrote %d rows -> %s", ticker, len(df), target)
+    # Land first, validate second: the landing zone keeps exactly what the
+    # provider returned (replayable, forensics), while a failed batch still
+    # halts the pipeline here, before anything downstream consumes it.
+    validate_daily_bars(df, context=ticker)
+    logger.info("%s: wrote and validated %d rows -> %s", ticker, len(df), target)
     return len(df)
 
 

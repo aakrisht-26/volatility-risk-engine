@@ -4,6 +4,8 @@ from datetime import date
 from pathlib import Path
 
 import pandas as pd
+import pytest
+from pandera.errors import SchemaErrors
 
 from volrisk.ingest.backfill import backfill_ticker, parquet_path, run_backfill
 from volrisk.providers.base import OHLCVProvider
@@ -60,4 +62,22 @@ def test_run_backfill_covers_all_tickers(tmp_path: Path) -> None:
 
     assert counts == {"^GSPC": 2, "AAPL": 2}
     assert (tmp_path / "GSPC.parquet").exists()
+    assert (tmp_path / "AAPL.parquet").exists()
+
+
+class CorruptProvider(OHLCVProvider):
+    """Serves a frame violating the high >= low invariant."""
+
+    def fetch_daily_ohlcv(self, ticker: str, start: date, end: date) -> pd.DataFrame:
+        df = canonical_frame(ticker)
+        df.loc[0, "high"] = df.loc[0, "low"] / 2
+        return df
+
+
+def test_backfill_halts_on_invalid_batch_but_keeps_landing_file(tmp_path: Path) -> None:
+    with pytest.raises(SchemaErrors):
+        backfill_ticker(CorruptProvider(), "AAPL", date(2024, 1, 1), date(2024, 1, 31), tmp_path)
+
+    # The landing zone retains the as-fetched batch for forensics; the raised
+    # error is what stops anything downstream from consuming it.
     assert (tmp_path / "AAPL.parquet").exists()
