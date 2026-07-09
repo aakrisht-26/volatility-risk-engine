@@ -1,0 +1,27 @@
+# Containerized PostgreSQL 16 — the documented alternative to a native install.
+# (This machine runs a native PG16 on port 5433 instead; see README for both routes.)
+#
+#   docker compose up -d
+#   docker compose ps          # wait for healthy
+#
+# Credentials come from .env (see .env.example).
+services:
+  postgres:
+    image: postgres:16
+    container_name: volrisk-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-volrisk}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-volrisk}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-volrisk} -d ${POSTGRES_DB:-volrisk}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:
