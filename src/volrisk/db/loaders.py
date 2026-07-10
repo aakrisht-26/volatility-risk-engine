@@ -10,6 +10,7 @@ load therefore adds zero duplicate rows while still healing revised bars.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from pathlib import Path
 
 import pandas as pd
@@ -28,7 +29,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import insert
 
-from volrisk.validate.schemas import validate_daily_bars
+from volrisk.validate.schemas import validate_clean_daily_bars, validate_daily_bars
 
 logger = logging.getLogger(__name__)
 
@@ -47,16 +48,38 @@ DAILY_BARS = Table(
     Column("loaded_at", DateTime(timezone=True), server_default=func.now()),
 )
 
+# Same natural-key layout as raw, plus the computed log return.
+CLEAN_DAILY_BARS = Table(
+    "daily_bars",
+    MetaData(schema="clean"),
+    Column("ticker", Text, primary_key=True),
+    Column("trade_date", Date, primary_key=True),
+    Column("open", Double, nullable=False),
+    Column("high", Double, nullable=False),
+    Column("low", Double, nullable=False),
+    Column("close", Double, nullable=False),
+    Column("adj_close", Double, nullable=False),
+    Column("volume", BigInteger),
+    Column("log_return", Double),
+    Column("loaded_at", DateTime(timezone=True), server_default=func.now()),
+)
+
 _UPDATABLE_COLUMNS = ("open", "high", "low", "close", "adj_close", "volume")
+_CLEAN_UPDATABLE_COLUMNS = (*_UPDATABLE_COLUMNS, "log_return")
+
+
+def build_upsert(table: Table, conflict_cols: Sequence[str], update_cols: Sequence[str]):
+    """INSERT ... ON CONFLICT (natural key) DO UPDATE — revisable rows, zero duplicates."""
+    stmt = insert(table)
+    return stmt.on_conflict_do_update(
+        index_elements=list(conflict_cols),
+        set_={col: stmt.excluded[col] for col in update_cols} | {"loaded_at": func.now()},
+    )
 
 
 def build_upsert_statement():
-    """INSERT ... ON CONFLICT (ticker, trade_date) DO UPDATE for daily bars."""
-    stmt = insert(DAILY_BARS)
-    return stmt.on_conflict_do_update(
-        index_elements=["ticker", "trade_date"],
-        set_={col: stmt.excluded[col] for col in _UPDATABLE_COLUMNS} | {"loaded_at": func.now()},
-    )
+    """INSERT ... ON CONFLICT (ticker, trade_date) DO UPDATE for raw daily bars."""
+    return build_upsert(DAILY_BARS, ("ticker", "trade_date"), _UPDATABLE_COLUMNS)
 
 
 def read_landing_parquet(path: Path) -> pd.DataFrame:
@@ -80,6 +103,18 @@ def upsert_daily_bars(engine: Engine, df: pd.DataFrame, context: str = "") -> in
     records = frame_to_records(df)
     with engine.begin() as conn:
         conn.execute(build_upsert_statement(), records)
+    return len(records)
+
+
+def upsert_clean_daily_bars(engine: Engine, df: pd.DataFrame, context: str = "") -> int:
+    """Validate one clean batch (canonical + log_return) and upsert it."""
+    validate_clean_daily_bars(df, context=context)
+    records = frame_to_records(df)
+    with engine.begin() as conn:
+        conn.execute(
+            build_upsert(CLEAN_DAILY_BARS, ("ticker", "trade_date"), _CLEAN_UPDATABLE_COLUMNS),
+            records,
+        )
     return len(records)
 
 

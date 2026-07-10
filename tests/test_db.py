@@ -66,17 +66,6 @@ def test_frame_to_records_converts_na_to_none() -> None:
 # --- integration (disposable test database only) ---
 
 
-@pytest.fixture(scope="module")
-def db_engine():
-    from volrisk.db.engine import get_engine
-    from volrisk.db.migrate import apply_migrations
-
-    engine = get_engine(TEST_DB_URL)
-    apply_migrations(engine)
-    yield engine
-    engine.dispose()
-
-
 @pytest.fixture
 def clean_table(db_engine):
     with db_engine.begin() as conn:

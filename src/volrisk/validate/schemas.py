@@ -62,6 +62,30 @@ RAW_DAILY_BARS_SCHEMA = pa.DataFrameSchema(
 )
 
 
+# Clean bars: the canonical contract plus the computed log return
+# (NULL on each ticker's first row, so nullable by design).
+CLEAN_DAILY_BARS_SCHEMA = RAW_DAILY_BARS_SCHEMA.add_columns(
+    {"log_return": pa.Column("float64", nullable=True)}
+)
+
+
+def _validate(
+    schema: pa.DataFrameSchema, df: pd.DataFrame, context: str, label: str
+) -> pd.DataFrame:
+    try:
+        return schema.validate(df, lazy=True)
+    except SchemaErrors as exc:
+        suffix = f" [{context}]" if context else ""
+        logger.error(
+            "%s validation failed%s: %d violation(s)\n%s",
+            label,
+            suffix,
+            len(exc.failure_cases),
+            exc.failure_cases.to_string(),
+        )
+        raise
+
+
 def validate_daily_bars(df: pd.DataFrame, context: str = "") -> pd.DataFrame:
     """Validate one batch of canonical daily bars; return it unchanged on success.
 
@@ -70,14 +94,9 @@ def validate_daily_bars(df: pd.DataFrame, context: str = "") -> pd.DataFrame:
     actionable without a debugger. ``context`` labels the log line (ticker,
     file, ...).
     """
-    try:
-        return RAW_DAILY_BARS_SCHEMA.validate(df, lazy=True)
-    except SchemaErrors as exc:
-        label = f" [{context}]" if context else ""
-        logger.error(
-            "daily-bars validation failed%s: %d violation(s)\n%s",
-            label,
-            len(exc.failure_cases),
-            exc.failure_cases.to_string(),
-        )
-        raise
+    return _validate(RAW_DAILY_BARS_SCHEMA, df, context, label="daily-bars")
+
+
+def validate_clean_daily_bars(df: pd.DataFrame, context: str = "") -> pd.DataFrame:
+    """Validate one batch of clean daily bars (canonical + log_return)."""
+    return _validate(CLEAN_DAILY_BARS_SCHEMA, df, context, label="clean-daily-bars")
