@@ -11,8 +11,10 @@ an ablation ladder of models (EWMA → GARCH(1,1) → HAR-RV → LightGBM), conv
 
 ## Status
 
-Step 4 of 13 — Postgres raw layer (ingestion, validation, and idempotent DB load are in
-place). The roadmap lives in [CLAUDE.md](CLAUDE.md).
+Step 5 of 13 — clean layer: bars aligned to the XNYS calendar with an explicit
+partial-bar policy (in-progress sessions never enter `clean`), a per-ticker gap report
+reconciling exact counts against the exchange calendar, and log returns on adjusted
+close. The roadmap lives in [CLAUDE.md](CLAUDE.md).
 
 ## Stack
 
@@ -60,7 +62,12 @@ docker compose ps          # wait until healthy
 ```bash
 uv run python -m volrisk.ingest.backfill        # 10y OHLCV -> data/raw/*.parquet (validated)
 uv run python -m volrisk.db.migrate             # apply db/migrations/*.sql (tracked, idempotent)
-uv run python -m volrisk.db.load_raw            # upsert parquet -> raw.daily_bars
-uv run python -m volrisk.db.load_raw            # re-run: prints net new rows = 0
+uv run python -m volrisk.db.load_raw            # upsert parquet -> raw.daily_bars (re-run: net 0)
+uv run python -m volrisk.transform.cleaning     # calendar-align -> clean.daily_bars + gap report
 uv run --env-file .env pytest                   # includes DB integration tests
 ```
+
+Every load stage upserts on the natural key `(ticker, trade_date)`, so re-running any
+stage is idempotent; recent bars are revisable by design (a fetch during market hours
+lands an in-progress bar, which later runs revise to final values and the cleaning
+stage excludes until its session has closed).
