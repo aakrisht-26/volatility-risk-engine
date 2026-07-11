@@ -7,6 +7,11 @@ Usage::
 Executes ``build_features.sql``: a full recompute from clean.daily_bars,
 upserted on (ticker, trade_date) — idempotent. Full recompute over the Phase-1
 basket is instantaneous; incremental optimization is Step-11 scope.
+
+The printed ``negative_gk`` column is a canary, not a statistic: Garman-Klass
+is provably non-negative on valid OHLC (low ≤ open,close ≤ high implies
+|ln(C/O)| ≤ ln(H/L)), so any non-zero count means invalid bars leaked past the
+pandera and CHECK-constraint layers.
 """
 
 from __future__ import annotations

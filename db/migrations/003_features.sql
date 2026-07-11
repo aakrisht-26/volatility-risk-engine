@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS features.daily_features (
     park_var            double precision,  -- Parkinson daily variance: ln(H/L)^2 / (4 ln 2)
     gk_var              double precision,  -- Garman–Klass daily variance (primary RV proxy):
                                            --   0.5·ln(H/L)^2 − (2 ln 2 − 1)·ln(C/O)^2
+                                           -- Provably non-negative on valid OHLC: low ≤ open,close ≤ high
+                                           -- implies |ln(C/O)| ≤ ln(H/L), so gk_var ≥ (1.5 − 2 ln 2)·ln(C/O)² ≥ 0.
+                                           -- A negative value is a CANARY: invalid OHLC leaked past validation.
     rvol_5              double precision,  -- annualized realized vol: sqrt(252 · avg(r2) over full window)
     rvol_21             double precision,
     rvol_63             double precision,
