@@ -11,10 +11,10 @@ an ablation ladder of models (EWMA → GARCH(1,1) → HAR-RV → LightGBM), conv
 
 ## Status
 
-Step 5 of 13 — clean layer: bars aligned to the XNYS calendar with an explicit
-partial-bar policy (in-progress sessions never enter `clean`), a per-ticker gap report
-reconciling exact counts against the exchange calendar, and log returns on adjusted
-close. The roadmap lives in [CLAUDE.md](CLAUDE.md).
+Step 6 of 13 — SQL feature layer: window functions over `clean` compute lagged returns,
+rolling realized volatility (5/21/63d, annualized), Parkinson and Garman–Klass range
+estimators, and HAR components, cross-checked column-by-column against an independent
+pandas recomputation at machine epsilon. The roadmap lives in [CLAUDE.md](CLAUDE.md).
 
 ## Stack
 
@@ -64,6 +64,8 @@ uv run python -m volrisk.ingest.backfill        # 10y OHLCV -> data/raw/*.parque
 uv run python -m volrisk.db.migrate             # apply db/migrations/*.sql (tracked, idempotent)
 uv run python -m volrisk.db.load_raw            # upsert parquet -> raw.daily_bars (re-run: net 0)
 uv run python -m volrisk.transform.cleaning     # calendar-align -> clean.daily_bars + gap report
+uv run python -m volrisk.features.build         # window functions -> features.daily_features
+uv run python -m volrisk.features.crosscheck    # SQL vs pandas recomputation, per ticker
 uv run --env-file .env pytest                   # includes DB integration tests
 ```
 
@@ -71,3 +73,10 @@ Every load stage upserts on the natural key `(ticker, trade_date)`, so re-runnin
 stage is idempotent; recent bars are revisable by design (a fetch during market hours
 lands an in-progress bar, which later runs revise to final values and the cleaning
 stage excludes until its session has closed).
+
+**Repo invariant: the modeling layer never sees an in-progress bar.** A bar reaches
+`clean` — and everything downstream of it — only after its exchange session has closed.
+
+Calendar note: ^VIX is CBOE-listed; the XNYS calendar is used as a proxy for the whole
+US basket. That is a deliberate simplification — its artifacts (e.g. a phantom ^VIX bar
+on a market holiday) are surfaced and excluded by the cleaning stage's gap report.
