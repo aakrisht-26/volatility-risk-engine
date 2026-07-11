@@ -29,7 +29,11 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import insert
 
-from volrisk.validate.schemas import validate_clean_daily_bars, validate_daily_bars
+from volrisk.validate.schemas import (
+    validate_clean_daily_bars,
+    validate_daily_bars,
+    validate_variance_forecasts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +65,18 @@ CLEAN_DAILY_BARS = Table(
     Column("adj_close", Double, nullable=False),
     Column("volume", BigInteger),
     Column("log_return", Double),
+    Column("loaded_at", DateTime(timezone=True), server_default=func.now()),
+)
+
+# Next-day variance forecasts; var_forecast is daily variance in RETURN units
+# (see db/migrations/004_forecasts.sql — the units comment there is load-bearing).
+VARIANCE_FORECASTS = Table(
+    "daily_variance",
+    MetaData(schema="forecasts"),
+    Column("ticker", Text, primary_key=True),
+    Column("trade_date", Date, primary_key=True),
+    Column("model", Text, primary_key=True),
+    Column("var_forecast", Double, nullable=False),
     Column("loaded_at", DateTime(timezone=True), server_default=func.now()),
 )
 
@@ -113,6 +129,18 @@ def upsert_clean_daily_bars(engine: Engine, df: pd.DataFrame, context: str = "")
     with engine.begin() as conn:
         conn.execute(
             build_upsert(CLEAN_DAILY_BARS, ("ticker", "trade_date"), _CLEAN_UPDATABLE_COLUMNS),
+            records,
+        )
+    return len(records)
+
+
+def upsert_variance_forecasts(engine: Engine, df: pd.DataFrame, context: str = "") -> int:
+    """Validate one batch of variance forecasts and upsert it."""
+    validate_variance_forecasts(df, context=context)
+    records = frame_to_records(df)
+    with engine.begin() as conn:
+        conn.execute(
+            build_upsert(VARIANCE_FORECASTS, ("ticker", "trade_date", "model"), ("var_forecast",)),
             records,
         )
     return len(records)

@@ -100,3 +100,27 @@ def validate_daily_bars(df: pd.DataFrame, context: str = "") -> pd.DataFrame:
 def validate_clean_daily_bars(df: pd.DataFrame, context: str = "") -> pd.DataFrame:
     """Validate one batch of clean daily bars (canonical + log_return)."""
     return _validate(CLEAN_DAILY_BARS_SCHEMA, df, context, label="clean-daily-bars")
+
+
+# Variance forecasts: daily variance of the log return in RETURN units
+# (never percent², never annualized) for the session being forecast.
+VARIANCE_FORECASTS_SCHEMA = pa.DataFrameSchema(
+    columns={
+        "ticker": pa.Column(str, nullable=False),
+        "trade_date": pa.Column(
+            object,
+            checks=pa.Check(_is_python_date, name="is_python_date"),
+            nullable=False,
+        ),
+        "model": pa.Column(str, nullable=False),
+        "var_forecast": pa.Column("float64", _POSITIVE, nullable=False),
+    },
+    unique=["ticker", "trade_date", "model"],
+    strict=True,
+    name="variance_forecasts",
+)
+
+
+def validate_variance_forecasts(df: pd.DataFrame, context: str = "") -> pd.DataFrame:
+    """Validate one batch of next-day variance forecasts."""
+    return _validate(VARIANCE_FORECASTS_SCHEMA, df, context, label="variance-forecasts")
