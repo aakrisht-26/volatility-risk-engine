@@ -21,6 +21,7 @@ from sqlalchemy import (
     DateTime,
     Double,
     Engine,
+    Integer,
     MetaData,
     Table,
     Text,
@@ -85,12 +86,17 @@ _CLEAN_UPDATABLE_COLUMNS = (*_UPDATABLE_COLUMNS, "log_return")
 
 
 def build_upsert(table: Table, conflict_cols: Sequence[str], update_cols: Sequence[str]):
-    """INSERT ... ON CONFLICT (natural key) DO UPDATE — revisable rows, zero duplicates."""
+    """INSERT ... ON CONFLICT (natural key) DO UPDATE — revisable rows, zero duplicates.
+
+    The table's timestamp column (loaded_at or computed_at) is refreshed on
+    every conflict so a row always records its latest write.
+    """
     stmt = insert(table)
-    return stmt.on_conflict_do_update(
-        index_elements=list(conflict_cols),
-        set_={col: stmt.excluded[col] for col in update_cols} | {"loaded_at": func.now()},
-    )
+    set_ = {col: stmt.excluded[col] for col in update_cols}
+    for ts_col in ("loaded_at", "computed_at"):
+        if ts_col in table.c:
+            set_[ts_col] = func.now()
+    return stmt.on_conflict_do_update(index_elements=list(conflict_cols), set_=set_)
 
 
 def build_upsert_statement():
@@ -131,6 +137,34 @@ def upsert_clean_daily_bars(engine: Engine, df: pd.DataFrame, context: str = "")
             build_upsert(CLEAN_DAILY_BARS, ("ticker", "trade_date"), _CLEAN_UPDATABLE_COLUMNS),
             records,
         )
+    return len(records)
+
+
+# Derived evaluation metrics (Step 8). No pandera layer here: inputs are the
+# already-validated forecasts and features tables, and the values are computed,
+# not ingested.
+ABLATION_METRICS = Table(
+    "ablation_metrics",
+    MetaData(schema="forecasts"),
+    Column("ticker", Text, primary_key=True),
+    Column("model", Text, primary_key=True),
+    Column("n_obs", Integer, nullable=False),
+    Column("qlike", Double, nullable=False),
+    Column("rmse_ann_vol_pct", Double, nullable=False),
+    Column("eval_start", Date, nullable=False),
+    Column("eval_end", Date, nullable=False),
+    Column("computed_at", DateTime(timezone=True), server_default=func.now()),
+)
+
+_ABLATION_UPDATABLE = ("n_obs", "qlike", "rmse_ann_vol_pct", "eval_start", "eval_end")
+
+
+def upsert_ablation_metrics(engine: Engine, df: pd.DataFrame) -> int:
+    """Upsert computed ablation metrics keyed by (ticker, model)."""
+    records = df.to_dict("records")
+    stmt = build_upsert(ABLATION_METRICS, ("ticker", "model"), _ABLATION_UPDATABLE)
+    with engine.begin() as conn:
+        conn.execute(stmt, records)
     return len(records)
 
 
