@@ -11,10 +11,53 @@ an ablation ladder of models (EWMA → GARCH(1,1) → HAR-RV → LightGBM), conv
 
 ## Status
 
-Step 7 of 13 — baseline forecasters: RiskMetrics EWMA(0.94) and GARCH(1,1) produce
-walk-forward next-day variance forecasts (expanding window, ≥3y train, monthly refits)
-for the full modeled basket, written to the `forecasts` schema with explicit model tags
-and unit-explicit columns. The roadmap lives in [CLAUDE.md](CLAUDE.md).
+Step 8 of 13 — the full ablation ladder: EWMA(0.94) → GARCH(1,1) → HAR-RV → LightGBM
+(plus a LightGBM+VIX exogenous variant), one shared walk-forward harness (expanding
+window, ≥3y train, monthly refits), evaluated with QLIKE (primary) and RMSE (secondary)
+per ticker and on average. The roadmap lives in [CLAUDE.md](CLAUDE.md).
+
+## Ablation results (v1)
+
+Next-day variance forecasts, walk-forward only — no random splits, no tuning; every
+forecast uses information through the previous session. `lgbm_vix` adds lagged ^VIX
+level/change as exogenous regressors (reference data, per the ^VIX ruling).
+
+Known v1 caveat: the regression models occasionally emit near-zero variance forecasts
+(4–45 of ~1,756 dates per series), which QLIKE punishes roughly linearly in
+realized/forecast — those few dates dominate their QLIKE means below. Excluding
+forecasts under 1e-6, HAR-RV's QLIKE is 0.29–0.39, competitive with or better than
+GARCH; the RMSE table is unaffected. v2 (pending review) will address forecast
+positivity structurally (log-variance targets).
+
+<!-- ABLATION:BEGIN -->
+Walk-forward evaluation on each ticker's common forecast dates (~1756 sessions per ticker, 2019-07-15 to 2026-07-09). Realized-variance proxy: Garman-Klass. Lower is better; row-best in bold.
+
+**QLIKE (primary)**
+
+| ticker | ewma_094 | garch_11 | har_rv | lgbm | lgbm_vix |
+|---|---|---|---|---|---|
+| AAPL | 0.4201 | 0.3948 | **0.3000** | 184.3099 | 170.6866 |
+| JPM | 0.3860 | **0.3304** | 755.9906 | 727.9801 | 677.6706 |
+| MSFT | 0.4071 | 0.3805 | **0.2981** | 225.2434 | 49.8936 |
+| NVDA | 0.4055 | 0.4148 | **0.2866** | 146.0983 | 199.0583 |
+| TSLA | 0.3965 | 0.4518 | **0.2729** | 491.0889 | 350.4063 |
+| XOM | 0.3371 | **0.3293** | 225.2810 | 296.4946 | 579.6450 |
+| ^GSPC | 0.5767 | **0.5069** | 30.8317 | 199.4603 | 103.8150 |
+| **AVERAGE** | 0.4184 | **0.4012** | 144.7516 | 324.3822 | 304.4536 |
+
+**RMSE, annualized-vol percentage points (secondary)**
+
+| ticker | ewma_094 | garch_11 | har_rv | lgbm | lgbm_vix |
+|---|---|---|---|---|---|
+| AAPL | 14.10 | 12.78 | **9.36** | 10.70 | 10.74 |
+| JPM | 13.83 | 10.56 | **9.83** | 12.37 | 12.21 |
+| MSFT | 13.05 | 11.62 | **8.57** | 10.40 | 10.45 |
+| NVDA | 21.65 | 21.06 | **14.70** | 16.75 | 16.92 |
+| TSLA | 27.09 | 28.58 | **18.64** | 21.58 | 20.65 |
+| XOM | 12.95 | 12.24 | **10.11** | 12.26 | 11.94 |
+| ^GSPC | 10.40 | 8.95 | **5.91** | 6.84 | 6.60 |
+| **AVERAGE** | 16.15 | 15.11 | **11.02** | 12.98 | 12.79 |
+<!-- ABLATION:END -->
 
 ## Stack
 
