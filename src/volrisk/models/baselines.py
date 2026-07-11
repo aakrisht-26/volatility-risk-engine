@@ -72,22 +72,25 @@ def run_baselines(
     rows = []
     for ticker in tickers:
         r = returns[returns["ticker"] == ticker].set_index("trade_date")["log_return"]
-        for model, series in (
-            (EWMA_TAG, ewma_variance_forecasts(r, min_train=min_train)),
-            (GARCH_TAG, garch_variance_forecasts(r, min_train=min_train)),
+        garch_result = garch_variance_forecasts(r, min_train=min_train)
+        for model, series, convergence in (
+            (EWMA_TAG, ewma_variance_forecasts(r, min_train=min_train), None),
+            (GARCH_TAG, garch_result.forecasts, garch_result),
         ):
             n = upsert_variance_forecasts(
                 engine, forecasts_frame(ticker, series, model), context=f"{ticker}:{model}"
             )
-            rows.append(
-                {
-                    "ticker": ticker,
-                    "model": model,
-                    "rows": n,
-                    "first": series.index[0],
-                    "last": series.index[-1],
-                }
-            )
+            row = {
+                "ticker": ticker,
+                "model": model,
+                "rows": n,
+                "first": series.index[0],
+                "last": series.index[-1],
+                "refits": convergence.refits if convergence else 0,
+                "fallbacks": convergence.fallback_refits if convergence else 0,
+                "unconverged": convergence.unconverged_consumed if convergence else 0,
+            }
+            rows.append(row)
             logger.info(
                 "%s %s: %d forecasts (%s..%s)", ticker, model, n, series.index[0], series.index[-1]
             )
@@ -107,6 +110,15 @@ def main() -> None:
     print("\n=== Baseline forecasts written to forecasts.daily_variance ===")
     print(summary.to_string(index=False))
     print(f"\ntotal rows upserted: {summary['rows'].sum()}")
+
+    # Convergence canary (GARCH rows only): any non-zero fallback/unconverged
+    # count means the policy in volrisk.models.garch was exercised — see logs.
+    garch = summary[summary["model"] == GARCH_TAG]
+    print(
+        f"GARCH convergence: {garch['refits'].sum()} refits, "
+        f"{garch['fallbacks'].sum()} fallback(s) to previous parameters, "
+        f"{garch['unconverged'].sum()} unconverged first fit(s) consumed"
+    )
 
 
 if __name__ == "__main__":

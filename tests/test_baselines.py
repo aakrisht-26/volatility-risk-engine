@@ -21,6 +21,7 @@ import volrisk.models.garch as garch_module
 from volrisk.db.loaders import upsert_variance_forecasts
 from volrisk.models.ewma import ewma_variance_forecasts
 from volrisk.models.garch import (
+    GarchFit,
     GarchParams,
     filter_conditional_variance,
     fit_garch_params,
@@ -103,9 +104,9 @@ def fixed_fit(monkeypatch: pytest.MonkeyPatch) -> list[int]:
     """Replace the MLE fit with fixed params; returns the list of fit-window lengths."""
     calls: list[int] = []
 
-    def fake_fit(returns_pct: pd.Series) -> GarchParams:
+    def fake_fit(returns_pct: pd.Series) -> GarchFit:
         calls.append(len(returns_pct))
-        return FIXED_PARAMS
+        return GarchFit(FIXED_PARAMS, converged=True)
 
     monkeypatch.setattr(garch_module, "fit_garch_params", fake_fit)
     return calls
@@ -114,20 +115,21 @@ def fixed_fit(monkeypatch: pytest.MonkeyPatch) -> list[int]:
 def test_garch_refits_once_per_calendar_month(fixed_fit: list[int]) -> None:
     r = returns_series(40)  # ~2024-01-02 .. 2024-02-28: January + February
 
-    garch_variance_forecasts(r, min_train=10)
+    result = garch_variance_forecasts(r, min_train=10)
 
     # One fit when forecasting starts (January), one at the first February session.
     assert len(fixed_fit) == 2
+    assert result.refits == 2
     assert fixed_fit[0] == 10  # expanding window: first fit sees exactly min_train returns
 
 
 def test_garch_forecast_uses_only_past_information(fixed_fit: list[int]) -> None:
     r = returns_series(40)
-    out = garch_variance_forecasts(r, min_train=10)
+    out = garch_variance_forecasts(r, min_train=10).forecasts
 
     mutated = r.copy()
     mutated.iloc[25:] = 0.5
-    out_mutated = garch_variance_forecasts(mutated, min_train=10)
+    out_mutated = garch_variance_forecasts(mutated, min_train=10).forecasts
 
     pd.testing.assert_series_equal(out.loc[: r.index[25]], out_mutated.loc[: r.index[25]])
     assert (out_mutated.loc[r.index[26] :] != out.loc[r.index[26] :]).all()
@@ -135,11 +137,55 @@ def test_garch_forecast_uses_only_past_information(fixed_fit: list[int]) -> None
 
 def test_garch_output_is_daily_variance_in_return_units(fixed_fit: list[int]) -> None:
     r = returns_series(60, scale=0.02)
-    out = garch_variance_forecasts(r, min_train=10)
+    out = garch_variance_forecasts(r, min_train=10).forecasts
 
     # With FIXED_PARAMS the unconditional pct² variance is 0.02/0.05 = 0.4,
     # i.e. 4e-5 in return units. A x10 000 mismatch would sit near 0.4.
     assert ((out > 1e-6) & (out < 1e-2)).all()
+
+
+# --- convergence policy (mocked failing fits; no optimizer) ---
+
+
+def test_garch_failed_refit_falls_back_to_previous_parameters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    outcomes = iter(
+        [GarchFit(FIXED_PARAMS, True), GarchFit(None, False), GarchFit(FIXED_PARAMS, True)]
+    )
+    monkeypatch.setattr(garch_module, "fit_garch_params", lambda _: next(outcomes))
+    r = returns_series(60)  # spans Jan, Feb, Mar 2024 -> three refits
+
+    result = garch_variance_forecasts(r, min_train=10)
+
+    assert result.refits == 3
+    assert result.fallback_refits == 1
+    assert len(result.fallback_dates) == 1
+    assert result.fallback_dates[0].month == 2  # the February refit failed
+    # Fallback reuses identical params, so the series must equal an all-success run.
+    monkeypatch.setattr(garch_module, "fit_garch_params", lambda _: GarchFit(FIXED_PARAMS, True))
+    all_success = garch_variance_forecasts(r, min_train=10)
+    pd.testing.assert_series_equal(result.forecasts, all_success.forecasts)
+
+
+def test_garch_unconverged_first_fit_is_consumed_loudly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(garch_module, "fit_garch_params", lambda _: GarchFit(FIXED_PARAMS, False))
+    r = returns_series(30)
+
+    result = garch_variance_forecasts(r, min_train=10)
+
+    assert result.unconverged_consumed >= 1
+    assert not result.forecasts.empty  # never crashes mid-walk-forward
+
+
+def test_garch_first_fit_raising_is_unrecoverable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(garch_module, "fit_garch_params", lambda _: GarchFit(None, False))
+    r = returns_series(30)
+
+    with pytest.raises(RuntimeError, match="no fallback"):
+        garch_variance_forecasts(r, min_train=10)
 
 
 # --- arch integration (real optimizer, offline) ---
@@ -149,12 +195,14 @@ def test_fit_garch_params_smoke() -> None:
     rng = np.random.default_rng(5)
     r_pct = pd.Series(rng.normal(0.0, 1.2, 800))
 
-    params = fit_garch_params(r_pct)
+    fit = fit_garch_params(r_pct)
 
-    assert params.omega > 0
-    assert 0 <= params.alpha < 1
-    assert 0 <= params.beta < 1
-    assert params.alpha + params.beta < 1
+    assert fit.converged
+    assert fit.params is not None
+    assert fit.params.omega > 0
+    assert 0 <= fit.params.alpha < 1
+    assert 0 <= fit.params.beta < 1
+    assert fit.params.alpha + fit.params.beta < 1
 
 
 # --- forecasts table integration ---
