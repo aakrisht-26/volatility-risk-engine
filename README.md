@@ -11,10 +11,10 @@ an ablation ladder of models (EWMA → GARCH(1,1) → HAR-RV → LightGBM), conv
 
 ## Status
 
-Step 6 of 13 — SQL feature layer: window functions over `clean` compute lagged returns,
-rolling realized volatility (5/21/63d, annualized), Parkinson and Garman–Klass range
-estimators, and HAR components, cross-checked column-by-column against an independent
-pandas recomputation at machine epsilon. The roadmap lives in [CLAUDE.md](CLAUDE.md).
+Step 7 of 13 — baseline forecasters: RiskMetrics EWMA(0.94) and GARCH(1,1) produce
+walk-forward next-day variance forecasts (expanding window, ≥3y train, monthly refits)
+for the full modeled basket, written to the `forecasts` schema with explicit model tags
+and unit-explicit columns. The roadmap lives in [CLAUDE.md](CLAUDE.md).
 
 ## Stack
 
@@ -66,6 +66,7 @@ uv run python -m volrisk.db.load_raw            # upsert parquet -> raw.daily_ba
 uv run python -m volrisk.transform.cleaning     # calendar-align -> clean.daily_bars + gap report
 uv run python -m volrisk.features.build         # window functions -> features.daily_features
 uv run python -m volrisk.features.crosscheck    # SQL vs pandas recomputation, per ticker
+uv run python -m volrisk.models.baselines       # walk-forward EWMA + GARCH -> forecasts schema
 uv run --env-file .env pytest                   # includes DB integration tests
 ```
 
