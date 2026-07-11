@@ -8,12 +8,14 @@ requires-python = ">=3.11"
 authors = [{ name = "Aakrisht Yadav" }]
 dependencies = [
     "arch>=8.0.0",
+    "lightgbm>=4.6.0",
     "pandas>=3.0.3",
     "pandas-market-calendars>=5.4.0",
     "pandera>=0.32.1",
     "psycopg[binary]>=3.3.4",
     "pyarrow>=24.0.0",
     "pydantic-settings>=2.14.2",
+    "scikit-learn>=1.9.0",
     "sqlalchemy>=2.0.51",
     "yfinance>=1.5.1",
 ]
