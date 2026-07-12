@@ -11,10 +11,59 @@ an ablation ladder of models (EWMA → GARCH(1,1) → HAR-RV → LightGBM), conv
 
 ## Status
 
-Step 8 of 13 — the full ablation ladder: EWMA(0.94) → GARCH(1,1) → HAR-RV → LightGBM
-(plus a LightGBM+VIX exogenous variant), one shared walk-forward harness (expanding
-window, ≥3y train, monthly refits), evaluated with QLIKE (primary) and RMSE (secondary)
-per ticker and on average. The roadmap lives in [CLAUDE.md](CLAUDE.md).
+Step 9 of 13 — risk layer: 1-day parametric Value-at-Risk (95% and 99%) for all five
+forecast models, with Kupiec proportion-of-failures coverage backtesting on the same
+per-ticker window as the ablation. Predictions were pre-registered before results were
+computed. The roadmap lives in [CLAUDE.md](CLAUDE.md).
+
+## Value-at-Risk coverage (Step 9)
+
+1-day parametric VaR at 95% and 99% for every forecast model, backtested with the
+Kupiec POF test on the same per-ticker intersection window as the ablation
+(n = 1,756, 2019-07-15 to 2026-07-09).
+
+**Method.** VaR_α(d) = z_α · sqrt(var_forecast(d)), assuming a **zero-mean** normal
+1-day return — over one trading day the drift (~1e-4) is negligible next to volatility
+(~1e-2), the standard 1-day parametric-VaR assumption. z₉₅ = 1.645, z₉₉ = 2.326. VaR is
+a positive loss magnitude in log-return units. **Breach convention:** session d breaches
+when the realized close-to-close log return r_d < −VaR_α(d) — the long-position loss
+tail. Under the model P(breach) = 1 − α exactly, so expected breaches are 87.8 at 95%
+and 17.6 at 99%.
+
+**Pre-registered predictions** (committed before any results were computed — see git
+history; the results block below was empty in the registering commit):
+
+1. **(i)** The GK-target models (`har_rv`, `lgbm`, `lgbm_vix`) **under-cover at both
+   levels** — their σ is *session-range* (Garman–Klass) volatility, which omits the
+   overnight gap, so it understates close-to-close risk and produces more breaches than
+   nominal.
+2. **(ii)** **All models under-cover at 99%** — a normal quantile cannot reach the fat
+   tails of real returns, so the 99% VaR is too small for every model.
+3. **(iii)** **GARCH and EWMA sit closest to nominal at 95%** — their σ is already
+   close-to-close, so at the level where the normal tail is least wrong they should be
+   near-calibrated.
+
+**Confirmation criterion for (i)** (pre-registered): the three GK-target models'
+*average observed 95% breach rate* ≥ 6.0% (a ≥20% relative excess over the 5% nominal).
+If met, the runner builds calibrated variants (`har_rv_cal`, `lgbm_cal`, `lgbm_vix_cal`)
+that multiply each session-range variance by a per-ticker ratio
+c = mean(r²)/mean(gk_var), estimated on **training data only** at each monthly refit
+(expanding window, no look-ahead), converting session-range variance to close-to-close
+variance, and re-runs Kupiec on them.
+
+<!-- VAR:BEGIN -->
+(results pending — this block is filled by `python -m volrisk.risk.backtest --write-readme`
+only after the predictions above are committed)
+<!-- VAR:END -->
+
+**Limitations.** The VaR is parametric-normal, so it structurally cannot capture the
+fat tails and volatility-of-volatility of real equity returns; at 99% especially, the
+normal quantile sits inside the true tail, so under-coverage there is expected by
+construction and is *measured*, not hidden, in the table above. A Student-t innovation
+(heavier tails, one extra degree-of-freedom parameter) is the natural next step and
+remains a documented stretch goal. Kupiec's POF test also has **low power at 99%** with
+n ≈ 1,756 (only ~17.6 expected breaches): a non-rejection there is weak evidence of
+correct coverage, not proof — 99% p-values are read with that caveat.
 
 ## Ablation results (v1)
 

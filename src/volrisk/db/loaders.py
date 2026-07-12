@@ -180,6 +180,71 @@ def upsert_variance_forecasts(engine: Engine, df: pd.DataFrame, context: str = "
     return len(records)
 
 
+# VaR coverage backtest tables (Step 9). Computed from validated forecasts and
+# clean returns; the backtest recomputes every row each run, so storage is a
+# truncate-and-insert (full replace) rather than an upsert — this correctly
+# drops stale rows (e.g. _cal variants) when a later run omits them.
+VAR_COVERAGE = Table(
+    "var_coverage",
+    MetaData(schema="forecasts"),
+    Column("ticker", Text, primary_key=True),
+    Column("model", Text, primary_key=True),
+    Column("level", Integer, primary_key=True),
+    Column("n_obs", Integer, nullable=False),
+    Column("expected_breaches", Double, nullable=False),
+    Column("observed_breaches", Integer, nullable=False),
+    Column("breach_rate", Double, nullable=False),
+    Column("kupiec_lr", Double, nullable=False),
+    Column("kupiec_p", Double, nullable=False),
+    Column("eval_start", Date, nullable=False),
+    Column("eval_end", Date, nullable=False),
+    Column("computed_at", DateTime(timezone=True), server_default=func.now()),
+)
+
+VAR_BREACHES = Table(
+    "var_breaches",
+    MetaData(schema="forecasts"),
+    Column("ticker", Text, primary_key=True),
+    Column("model", Text, primary_key=True),
+    Column("level", Integer, primary_key=True),
+    Column("trade_date", Date, primary_key=True),
+    Column("log_return", Double, nullable=False),
+    Column("var_threshold", Double, nullable=False),
+)
+
+_VAR_COVERAGE_COLUMNS = (
+    "ticker",
+    "model",
+    "level",
+    "n_obs",
+    "expected_breaches",
+    "observed_breaches",
+    "breach_rate",
+    "kupiec_lr",
+    "kupiec_p",
+    "eval_start",
+    "eval_end",
+)
+_VAR_BREACH_COLUMNS = ("ticker", "model", "level", "trade_date", "log_return", "var_threshold")
+
+
+def store_var_results(
+    engine: Engine, coverage: pd.DataFrame, breaches: pd.DataFrame
+) -> tuple[int, int]:
+    """Replace all VaR coverage + breach rows in one transaction (idempotent)."""
+    cov_records = coverage[list(_VAR_COVERAGE_COLUMNS)].to_dict("records")
+    br_records = (
+        breaches[list(_VAR_BREACH_COLUMNS)].to_dict("records") if not breaches.empty else []
+    )
+    with engine.begin() as conn:
+        conn.execute(text("TRUNCATE forecasts.var_coverage, forecasts.var_breaches"))
+        if cov_records:
+            conn.execute(VAR_COVERAGE.insert(), cov_records)
+        if br_records:
+            conn.execute(VAR_BREACHES.insert(), br_records)
+    return len(cov_records), len(br_records)
+
+
 def raw_daily_bars_count(engine: Engine) -> int:
     with engine.connect() as conn:
         return conn.execute(text("SELECT count(*) FROM raw.daily_bars")).scalar_one()
