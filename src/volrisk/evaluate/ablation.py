@@ -88,13 +88,34 @@ def _metric_table(metrics: pd.DataFrame, value_col: str, fmt: str) -> str:
 
 
 def markdown_report(metrics: pd.DataFrame) -> str:
-    n_obs = int(metrics["n_obs"].min())
-    start = metrics["eval_start"].max()
-    end = metrics["eval_end"].min()
+    n_vals = metrics.groupby("ticker")["n_obs"].first()
+    spans = metrics.groupby("ticker")[["eval_start", "eval_end"]].first()
+    uniform = (
+        n_vals.nunique() == 1
+        and spans["eval_start"].nunique() == 1
+        and spans["eval_end"].nunique() == 1
+    )
+    if uniform:
+        meta = (
+            f"Evaluation set: the per-ticker INTERSECTION of every model's forecast dates — "
+            f"identical for all models by construction: n = {int(n_vals.iloc[0])} sessions "
+            f"per ticker, {spans['eval_start'].iloc[0]} to {spans['eval_end'].iloc[0]}."
+        )
+    else:
+        per = "; ".join(
+            f"{t}: n={int(n_vals[t])}, {spans.loc[t, 'eval_start']}..{spans.loc[t, 'eval_end']}"
+            for t in n_vals.index
+        )
+        meta = f"Evaluation set per ticker (intersection of every model's forecast dates): {per}."
+
+    footnote = (
+        "*QLIKE(h, f) = h/f - ln(h/f) - 1 (Patton-class robust loss, normalized to 0 at "
+        "f = h); dimensionless, lower is better. RMSE is in annualized-volatility "
+        "percentage points, i.e. rmse(100·sqrt(252·h), 100·sqrt(252·f)). h = realized "
+        "Garman-Klass variance, f = forecast; both are daily variances in return units.*"
+    )
     parts = [
-        f"Walk-forward evaluation on each ticker's common forecast dates "
-        f"(~{n_obs} sessions per ticker, {start} to {end}). Realized-variance proxy: "
-        f"Garman-Klass. Lower is better; row-best in bold.",
+        meta + " Realized-variance proxy: Garman-Klass. Lower is better; row-best in bold.",
         "",
         "**QLIKE (primary)**",
         "",
@@ -103,6 +124,8 @@ def markdown_report(metrics: pd.DataFrame) -> str:
         "**RMSE, annualized-vol percentage points (secondary)**",
         "",
         _metric_table(metrics, "rmse_ann_vol_pct", ".2f"),
+        "",
+        footnote,
     ]
     return "\n".join(parts)
 

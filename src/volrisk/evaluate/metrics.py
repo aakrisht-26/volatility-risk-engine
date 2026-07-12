@@ -1,9 +1,20 @@
 """Forecast-evaluation losses.
 
-QLIKE is primary (CLAUDE.md): robust to noise in the realized-variance proxy,
-minimized at zero when forecast equals realized. RMSE is secondary and is
-computed in ANNUALIZED-VOLATILITY percentage points so the number is readable
-("vol points"); inputs everywhere are daily variances in return units, same as
+QLIKE is primary (CLAUDE.md). Exact parameterization used here, with h the
+realized variance and f the forecast (both daily variances in return units):
+
+    QLIKE(h, f) = h/f - ln(h/f) - 1
+
+This is the Patton (2011)-class robust loss normalized so a perfect forecast
+scores exactly 0; other texts write the un-normalized ln(f) + h/f, which has
+the same minimizer but a data-dependent minimum. QLIKE is dimensionless,
+lower is better, and deliberately asymmetric: it punishes variance
+UNDER-forecasts far harder than over-forecasts — the right asymmetry for
+risk work.
+
+RMSE is secondary, computed in ANNUALIZED-VOLATILITY percentage points so the
+number is readable ("vol points"): rmse(100*sqrt(252*h), 100*sqrt(252*f)).
+Inputs everywhere are daily variances in return units, same as
 features.gk_var and forecasts.daily_variance.
 """
 
