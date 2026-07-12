@@ -52,8 +52,71 @@ c = mean(r²)/mean(gk_var), estimated on **training data only** at each monthly 
 variance, and re-runs Kupiec on them.
 
 <!-- VAR:BEGIN -->
-(results pending — this block is filled by `python -m volrisk.risk.backtest --write-readme`
-only after the predictions above are committed)
+**Outcomes vs pre-registered predictions:**
+
+- (i) GK-target models under-cover at 95%: **CONFIRMED** — avg breach rate 9.8% vs 5% nominal, all reject Kupiec.
+- (ii) All base models under-cover at 99%: **CONFIRMED** — every model's avg 99% rate exceeds 1% (least-bad 1.9%); the normal-quantile fat-tail limitation, measured.
+- (iii) GARCH/EWMA closest to nominal at 95%: **CONFIRMED** — their avg 95% rate 5.3% is 0.3pp off nominal vs 4.8pp for the GK-target models.
+
+Backtest window: per-ticker intersection of every base model's forecast dates, n = 1756 sessions, 2019-07-15 to 2026-07-09. Cells show observed breaches (rate); † = Kupiec rejects correct coverage at 5%.
+
+**95% VaR** — expected 87.8 breaches / 1756 sessions
+
+| ticker | ewma_094 | garch_11 | har_rv | lgbm | lgbm_vix |
+|---|---|---|---|---|---|
+| AAPL | 88 (5.0%) | 85 (4.8%) | 135 (7.7%) † | 183 (10.4%) † | 174 (9.9%) † |
+| JPM | 100 (5.7%) | 97 (5.5%) | 129 (7.3%) † | 167 (9.5%) † | 153 (8.7%) † |
+| MSFT | 97 (5.5%) | 101 (5.8%) | 151 (8.6%) † | 192 (10.9%) † | 179 (10.2%) † |
+| NVDA | 86 (4.9%) | 78 (4.4%) | 138 (7.9%) † | 194 (11.0%) † | 179 (10.2%) † |
+| TSLA | 89 (5.1%) | 75 (4.3%) | 146 (8.3%) † | 181 (10.3%) † | 178 (10.1%) † |
+| XOM | 100 (5.7%) | 97 (5.5%) | 146 (8.3%) † | 188 (10.7%) † | 190 (10.8%) † |
+| ^GSPC | 108 (6.2%) † | 110 (6.3%) † | 166 (9.5%) † | 232 (13.2%) † | 222 (12.6%) † |
+| **AVERAGE** | 95.4 | 91.9 | 144.4 | 191.0 | 182.1 |
+| **Kupiec rejects (/7)** | 1 | 1 | 7 | 7 | 7 |
+
+**99% VaR** — expected 17.6 breaches / 1756 sessions
+
+| ticker | ewma_094 | garch_11 | har_rv | lgbm | lgbm_vix |
+|---|---|---|---|---|---|
+| AAPL | 40 (2.3%) † | 31 (1.8%) † | 49 (2.8%) † | 95 (5.4%) † | 95 (5.4%) † |
+| JPM | 44 (2.5%) † | 38 (2.2%) † | 56 (3.2%) † | 88 (5.0%) † | 79 (4.5%) † |
+| MSFT | 33 (1.9%) † | 38 (2.2%) † | 64 (3.6%) † | 100 (5.7%) † | 92 (5.2%) † |
+| NVDA | 23 (1.3%) | 16 (0.9%) | 54 (3.1%) † | 85 (4.8%) † | 73 (4.2%) † |
+| TSLA | 30 (1.7%) † | 29 (1.7%) † | 62 (3.5%) † | 101 (5.8%) † | 91 (5.2%) † |
+| XOM | 37 (2.1%) † | 36 (2.1%) † | 60 (3.4%) † | 90 (5.1%) † | 96 (5.5%) † |
+| ^GSPC | 42 (2.4%) † | 40 (2.3%) † | 76 (4.3%) † | 121 (6.9%) † | 117 (6.7%) † |
+| **AVERAGE** | 35.6 | 32.6 | 60.1 | 97.1 | 91.9 |
+| **Kupiec rejects (/7)** | 6 | 6 | 7 | 7 | 7 |
+
+**Calibrated GK-target variants** (session-range variance rescaled to close-to-close by the walk-forward, training-only ratio c = mean(r^2)/mean(gk_var)).
+
+*95% VaR — expected 87.8 breaches*
+
+| ticker | har_rv_cal | lgbm_cal | lgbm_vix_cal |
+|---|---|---|---|
+| AAPL | 65 (3.7%) † | 105 (6.0%) | 106 (6.0%) |
+| JPM | 73 (4.2%) | 102 (5.8%) | 96 (5.5%) |
+| MSFT | 89 (5.1%) | 125 (7.1%) † | 122 (6.9%) † |
+| NVDA | 70 (4.0%) † | 98 (5.6%) | 92 (5.2%) |
+| TSLA | 81 (4.6%) | 118 (6.7%) † | 112 (6.4%) † |
+| XOM | 96 (5.5%) | 124 (7.1%) † | 122 (6.9%) † |
+| ^GSPC | 78 (4.4%) | 118 (6.7%) † | 116 (6.6%) † |
+| **AVERAGE** | 78.9 | 112.9 | 109.4 |
+| **Kupiec rejects (/7)** | 2 | 4 | 4 |
+
+*99% VaR — expected 17.6 breaches*
+
+| ticker | har_rv_cal | lgbm_cal | lgbm_vix_cal |
+|---|---|---|---|
+| AAPL | 24 (1.4%) | 42 (2.4%) † | 40 (2.3%) † |
+| JPM | 31 (1.8%) † | 47 (2.7%) † | 41 (2.3%) † |
+| MSFT | 31 (1.8%) † | 55 (3.1%) † | 49 (2.8%) † |
+| NVDA | 14 (0.8%) | 30 (1.7%) † | 30 (1.7%) † |
+| TSLA | 25 (1.4%) | 40 (2.3%) † | 44 (2.5%) † |
+| XOM | 30 (1.7%) † | 46 (2.6%) † | 58 (3.3%) † |
+| ^GSPC | 29 (1.7%) † | 60 (3.4%) † | 53 (3.0%) † |
+| **AVERAGE** | 26.3 | 45.7 | 45.0 |
+| **Kupiec rejects (/7)** | 4 | 7 | 7 |
 <!-- VAR:END -->
 
 **Limitations.** The VaR is parametric-normal, so it structurally cannot capture the

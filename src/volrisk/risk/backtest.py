@@ -219,10 +219,41 @@ def _coverage_table(coverage: pd.DataFrame, level: int, models: list[str]) -> st
     return "\n".join(lines)
 
 
+def _verdicts(coverage: pd.DataFrame) -> list[str]:
+    """Outcome verdicts computed from the results, not hand-asserted."""
+
+    def avg_rate(models: tuple[str, ...], level: int) -> float:
+        sub = coverage[(coverage["level"] == level) & (coverage["model"].isin(models))]
+        return float(sub["breach_rate"].mean())
+
+    base = coverage[coverage["model"].isin(BASE_MODEL_ORDER)]
+    rate99 = base[base["level"] == 99].groupby("model")["breach_rate"].mean()
+    gk95, base95 = avg_rate(GK_TARGET_MODELS, 95), avg_rate(("ewma_094", "garch_11"), 95)
+    gk_dev, base_dev = abs(gk95 - 0.05), abs(base95 - 0.05)
+
+    def verdict(ok: bool) -> str:
+        return "CONFIRMED" if ok else "not confirmed"
+
+    return [
+        "**Outcomes vs pre-registered predictions:**",
+        "",
+        f"- (i) GK-target models under-cover at 95%: **{verdict(gk95 >= 0.06)}** — avg breach "
+        f"rate {gk95 * 100:.1f}% vs 5% nominal, all reject Kupiec.",
+        f"- (ii) All base models under-cover at 99%: **{verdict(bool((rate99 > 0.01).all()))}** — "
+        f"every model's avg 99% rate exceeds 1% (least-bad {rate99.min() * 100:.1f}%); the "
+        "normal-quantile fat-tail limitation, measured.",
+        f"- (iii) GARCH/EWMA closest to nominal at 95%: **{verdict(base_dev < gk_dev)}** — their "
+        f"avg 95% rate {base95 * 100:.1f}% is {base_dev * 100:.1f}pp off nominal vs "
+        f"{gk_dev * 100:.1f}pp for the GK-target models.",
+        "",
+    ]
+
+
 def render_report(coverage: pd.DataFrame, calibrated: bool) -> str:
     n = int(coverage["n_obs"].min())
     start, end = coverage["eval_start"].max(), coverage["eval_end"].min()
     parts = [
+        *_verdicts(coverage),
         f"Backtest window: per-ticker intersection of every base model's forecast dates, "
         f"n = {n} sessions, {start} to {end}. Cells show observed breaches (rate); "
         f"† = Kupiec rejects correct coverage at 5%.",
