@@ -22,41 +22,61 @@ Next-day variance forecasts, walk-forward only — no random splits, no tuning; 
 forecast uses information through the previous session. `lgbm_vix` adds lagged ^VIX
 level/change as exogenous regressors (reference data, per the ^VIX ruling).
 
-Known v1 caveat: the regression models occasionally emit near-zero variance forecasts
-(4–45 of ~1,756 dates per series), which QLIKE punishes roughly linearly in
-realized/forecast — those few dates dominate their QLIKE means below. Excluding
-forecasts under 1e-6, HAR-RV's QLIKE is 0.29–0.39, competitive with or better than
-GARCH; the RMSE table is unaffected. v2 (pending review) will address forecast
-positivity structurally (log-variance targets).
+**Modeling note (why the regressions fit log variance).** v1 fit the regression models
+on variance *levels*; in calm regimes they emitted a handful of near-zero (HAR: even
+negative, floored) forecasts, and QLIKE — asymmetric by design, punishing variance
+under-forecasts hardest, which is the right asymmetry for risk work — blew up on
+exactly those dates (JPM HAR-RV: 755.6 with them, 0.29 without). v2 therefore fits
+`ln(variance)` and maps back with the lognormal half-variance correction
+`exp(m + s^2/2)` (s^2 = training-residual variance in log space, re-estimated at each
+refit); raw exponentiation would target the conditional *median* and systematically
+under-forecast the mean — the direction QLIKE punishes most. HAR-RV uses Corsi's
+log-log form (ln components as regressors, coefficients are elasticities): a log
+target over *level* features put spike-day component values straight into the
+exponent and produced astronomical over-forecasts — QLIKE's logarithmic over-forecast
+penalty barely moved while RMSE detonated, the exact mirror image of the v1 pathology.
+LightGBM keeps level features (trees split, they don't extrapolate). The 1e-8
+positivity floor remains as a canary only: with log-space fits it should never bind
+(expected floored count: 0).
+
+**Proxy robustness.** Re-scored against the noisier squared-return proxy (kept in the
+features layer for exactly this check), the ranking flips: GARCH leads (average QLIKE
+1.54) and HAR-RV's sweep does not persist (1.67). The two proxies target different
+variances — Garman-Klass measures the intraday range and excludes the overnight gap,
+while close-to-close squared returns include it — so each model family wins on the
+target it trains on. The forecast set feeding the VaR layer is chosen against the
+VaR-relevant (close-to-close) target, not this table alone.
 
 <!-- ABLATION:BEGIN -->
-Walk-forward evaluation on each ticker's common forecast dates (~1756 sessions per ticker, 2019-07-15 to 2026-07-09). Realized-variance proxy: Garman-Klass. Lower is better; row-best in bold.
+Evaluation set: the per-ticker INTERSECTION of every model's forecast dates — identical for all models by construction: n = 1756 sessions per ticker, 2019-07-15 to 2026-07-09. Realized-variance proxy: Garman-Klass. Lower is better; row-best in bold.
 
 **QLIKE (primary)**
 
 | ticker | ewma_094 | garch_11 | har_rv | lgbm | lgbm_vix |
 |---|---|---|---|---|---|
-| AAPL | 0.4201 | 0.3948 | **0.3000** | 184.3099 | 170.6866 |
-| JPM | 0.3860 | **0.3304** | 755.9906 | 727.9801 | 677.6706 |
-| MSFT | 0.4071 | 0.3805 | **0.2981** | 225.2434 | 49.8936 |
-| NVDA | 0.4055 | 0.4148 | **0.2866** | 146.0983 | 199.0583 |
-| TSLA | 0.3965 | 0.4518 | **0.2729** | 491.0889 | 350.4063 |
-| XOM | 0.3371 | **0.3293** | 225.2810 | 296.4946 | 579.6450 |
-| ^GSPC | 0.5767 | **0.5069** | 30.8317 | 199.4603 | 103.8150 |
-| **AVERAGE** | 0.4184 | **0.4012** | 144.7516 | 324.3822 | 304.4536 |
+| AAPL | 0.4201 | 0.3948 | **0.3006** | 0.4363 | 0.4033 |
+| JPM | 0.3860 | 0.3304 | **0.2826** | 0.4436 | 0.3916 |
+| MSFT | 0.4071 | 0.3805 | **0.2827** | 0.4067 | 0.3795 |
+| NVDA | 0.4055 | 0.4148 | **0.2850** | 0.3758 | 0.3577 |
+| TSLA | 0.3965 | 0.4518 | **0.2746** | 0.3429 | 0.3397 |
+| XOM | 0.3371 | 0.3293 | **0.2477** | 0.3519 | 0.3325 |
+| ^GSPC | 0.5767 | 0.5069 | **0.3791** | 0.5126 | 0.4504 |
+| **AVERAGE** | 0.4184 | 0.4012 | **0.2932** | 0.4100 | 0.3793 |
 
 **RMSE, annualized-vol percentage points (secondary)**
 
 | ticker | ewma_094 | garch_11 | har_rv | lgbm | lgbm_vix |
 |---|---|---|---|---|---|
-| AAPL | 14.10 | 12.78 | **9.36** | 10.70 | 10.74 |
-| JPM | 13.83 | 10.56 | **9.83** | 12.37 | 12.21 |
-| MSFT | 13.05 | 11.62 | **8.57** | 10.40 | 10.45 |
-| NVDA | 21.65 | 21.06 | **14.70** | 16.75 | 16.92 |
-| TSLA | 27.09 | 28.58 | **18.64** | 21.58 | 20.65 |
-| XOM | 12.95 | 12.24 | **10.11** | 12.26 | 11.94 |
-| ^GSPC | 10.40 | 8.95 | **5.91** | 6.84 | 6.60 |
-| **AVERAGE** | 16.15 | 15.11 | **11.02** | 12.98 | 12.79 |
+| AAPL | 14.10 | 12.78 | **9.42** | 10.09 | 9.90 |
+| JPM | 13.83 | 10.56 | **9.12** | 11.02 | 10.85 |
+| MSFT | 13.05 | 11.62 | **8.38** | 9.50 | 9.49 |
+| NVDA | 21.65 | 21.06 | **14.57** | 15.43 | 15.28 |
+| TSLA | 27.09 | 28.58 | **18.51** | 19.38 | 18.96 |
+| XOM | 12.95 | 12.24 | **9.66** | 11.00 | 10.70 |
+| ^GSPC | 10.40 | 8.95 | **5.87** | 6.39 | 6.13 |
+| **AVERAGE** | 16.15 | 15.11 | **10.79** | 11.83 | 11.62 |
+
+*QLIKE(h, f) = h/f - ln(h/f) - 1 (Patton-class robust loss, normalized to 0 at f = h); dimensionless, lower is better. RMSE is in annualized-volatility percentage points, i.e. rmse(100·sqrt(252·h), 100·sqrt(252·f)). h = realized Garman-Klass variance, f = forecast; both are daily variances in return units.*
 <!-- ABLATION:END -->
 
 ## Stack
