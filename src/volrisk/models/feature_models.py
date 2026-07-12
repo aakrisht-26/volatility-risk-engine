@@ -12,8 +12,15 @@ session — which is d-1 relative to the session being forecast, so the
 information lag is >= 1 by construction. They are computed at run time from
 clean bars and are deliberately NOT part of the features schema.
 
-Prints HAR-RV's fitted coefficients at the final refit per ticker, and a
-floored-predictions canary (see evaluate.walkforward.VARIANCE_FLOOR).
+All three models fit LOG variance and retransform with the lognormal
+half-variance correction (ablation v2 ruling; see models/logspace.py for the
+choice and its rationale). The floored-predictions count is therefore a pure
+canary: log-space predictions are positive by construction, so the expected
+count is 0 — a non-zero value means something upstream is wrong and must be
+investigated, not shrugged at.
+
+Prints HAR-RV's fitted coefficients (log-variance space) at the final refit
+per ticker.
 """
 
 from __future__ import annotations
@@ -31,6 +38,7 @@ from volrisk.evaluate.walkforward import walk_forward_feature_forecasts
 from volrisk.models.baselines import MIN_TRAIN_SESSIONS, NON_MODELED_TICKERS, forecasts_frame
 from volrisk.models.har import HAR_FEATURES, har_coefficients, make_har_model
 from volrisk.models.lgbm import LGBM_FEATURES, make_lgbm_model
+from volrisk.models.logspace import LogVarianceRegressor
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +46,14 @@ HAR_TAG = "har_rv"
 LGBM_TAG = "lgbm"
 LGBM_VIX_TAG = "lgbm_vix"
 VIX_COLS: tuple[str, ...] = ("vix_close", "vix_log_change")
+
+
+def make_log_har() -> LogVarianceRegressor:
+    return LogVarianceRegressor(make_har_model())
+
+
+def make_log_lgbm() -> LogVarianceRegressor:
+    return LogVarianceRegressor(make_lgbm_model())
 
 
 def load_features(engine: Engine) -> pd.DataFrame:
@@ -73,9 +89,9 @@ def run_feature_models(
         frame = feats[feats["ticker"] == ticker]
         frame_vix = frame.merge(vix, on="trade_date", how="left")
         for tag, cols, data, factory in (
-            (HAR_TAG, HAR_FEATURES, frame, make_har_model),
-            (LGBM_TAG, LGBM_FEATURES, frame, make_lgbm_model),
-            (LGBM_VIX_TAG, (*LGBM_FEATURES, *VIX_COLS), frame_vix, make_lgbm_model),
+            (HAR_TAG, HAR_FEATURES, frame, make_log_har),
+            (LGBM_TAG, LGBM_FEATURES, frame, make_log_lgbm),
+            (LGBM_VIX_TAG, (*LGBM_FEATURES, *VIX_COLS), frame_vix, make_log_lgbm),
         ):
             result = walk_forward_feature_forecasts(data, cols, factory, min_train=min_train)
             n = upsert_variance_forecasts(
@@ -91,8 +107,8 @@ def run_feature_models(
                 "floored": result.floored,
             }
             if tag == HAR_TAG and result.final_model is not None:
-                coefs = har_coefficients(result.final_model)
-                logger.info("%s HAR-RV final-refit coefficients: %s", ticker, coefs)
+                coefs = har_coefficients(result.final_model.inner)
+                logger.info("%s HAR-RV final-refit coefficients (log space): %s", ticker, coefs)
                 row["har_coefs"] = coefs
             rows.append(row)
             logger.info("%s %s: %d forecasts", ticker, tag, n)
@@ -116,10 +132,14 @@ def main() -> None:
         )
     )
     print(f"\ntotal rows upserted: {summary['rows'].sum()}")
-    print(f"floored predictions (canary): {summary['floored'].sum()}")
+    floored = int(summary["floored"].sum())
+    print(
+        f"floored predictions (canary, expected 0 with log-space fits): {floored}"
+        + ("  << INVESTIGATE" if floored else "")
+    )
 
     har_rows = summary[summary["model"] == HAR_TAG]
-    print("\nHAR-RV coefficients at final refit (variance units):")
+    print("\nHAR-RV coefficients at final refit (log-variance space):")
     for _, row in har_rows.iterrows():
         coefs = ", ".join(f"{k}={v:.3e}" for k, v in row["har_coefs"].items())
         print(f"  {row['ticker']:>6}: {coefs}")
