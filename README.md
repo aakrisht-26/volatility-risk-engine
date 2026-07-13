@@ -11,10 +11,59 @@ an ablation ladder of models (EWMA → GARCH(1,1) → HAR-RV → LightGBM), conv
 
 ## Status
 
-Step 9 of 13 — risk layer: 1-day parametric Value-at-Risk (95% and 99%) for all five
-forecast models, with Kupiec proportion-of-failures coverage backtesting on the same
-per-ticker window as the ablation. Predictions were pre-registered before results were
-computed. The roadmap lives in [CLAUDE.md](CLAUDE.md).
+Step 10 of 13 — India NSE data-quality audit (conditional gate). The five Phase-2 NSE
+tickers were audited for gap rate, zero-volume days, and adjustment sanity; the data
+passed, and integration awaits review of the one calendar caveat below. The forecasting
+pipeline through Step 9 is unchanged. The roadmap lives in [CLAUDE.md](CLAUDE.md).
+
+## India NSE audit (Step 10)
+
+A conditional data-quality gate on the Phase-2 basket (^NSEI, RELIANCE.NS, HDFCBANK.NS,
+INFY.NS, TCS.NS) — **an audit only; nothing here is integrated into the pipeline.** Run
+with `uv run python -m volrisk.audit.nse` (10y daily bars vs the `XNSE` calendar).
+
+| ticker | bars | gap rate¹ | special sessions² | zero-volume | close/adj (today) | max raw move | split jumps³ | verdict |
+|---|---|---|---|---|---|---|---|---|
+| ^NSEI | 2,463 | 0.36% | 6 | 1.2% | 1.0000 | 13.9% | 0 | GO |
+| RELIANCE.NS | 2,472 | 0.20% | 11 | 0.2% | 1.0000 | 14.1% | 0 | GO |
+| HDFCBANK.NS | 2,472 | 0.20% | 11 | 0.2% | 1.0000 | 13.5% | 0 | GO |
+| INFY.NS | 2,472 | 0.20% | 11 | 0.2% | 1.0000 | 17.7% | 0 | GO |
+| TCS.NS | 2,472 | 0.20% | 11 | 0.2% | 1.0000 | 9.9% | 0 | GO |
+
+¹ calendar sessions with no bar / expected. ² bars on days the calendar marks closed.
+³ single-day raw moves >35% — a nonzero count would flag an *unadjusted* corporate action.
+
+**Adjustment sanity — clean.** Every known corporate action is correctly back-adjusted:
+RELIANCE 1:1 bonus (2017-09), TCS 1:1 (2018-06), INFY 1:1 (2018-09), HDFCBANK 2:1
+face-value split (2019-09) all show a continuous adjusted series, `close/adj_close`
+converges to exactly 1.0000 today, and there are **zero** split-sized raw jumps across
+40 stock-years — so no corporate action was missed. (yfinance's "Close" is itself
+split-adjusted; only dividends separate it from "Adj Close" — the same property the US
+basket already has.)
+
+**Zero-volume — negligible.** 5 days per equity (0.2%); ^NSEI's 1.2% is index volume,
+which is not a tradability signal and would be reference-data-only anyway (same role as
+^VIX).
+
+**The one real caveat — the calendar, not the prices.** The gap-rate and special-session
+counts are **not** data holes; they are `pandas-market-calendars` `XNSE` disagreeing with
+NSE's actual trading days. The 11 "special sessions" per equity are real NSE sessions the
+calendar omits — **Diwali Muhurat** trading (2021-11-04, 2022-10-24, 2025-10-21, …) and
+special **Budget-day Saturday** sessions (2025-02-01); the 5 "missing" sessions are
+**ad-hoc NSE closures** the calendar didn't know (2024-01-22 Ram Mandir inauguration,
+2024-11-20 Maharashtra elections). The price data tracks real NSE days *more* accurately
+than the calendar. Consequence for integration: Step 5's cleaning excludes non-session
+rows, which would wrongly drop ~11 genuine sessions per NSE ticker — so NSE integration
+is **not** a drop-in. It needs a calendar decision first: augment `XNSE` with the special
+sessions and ad-hoc holidays, or treat the fetched bar dates as authoritative NSE session
+membership.
+
+**Recommendation: GO on data quality, pending your call on calendar handling.** The
+prices, volumes, and adjustments are clean and modelable across all five tickers. The
+only integration cost is the bounded (~0.6% of days) calendar-metadata gap above, with
+two clear fixes. Integration is **not** performed until approved.
+
+## Value-at-Risk coverage (Step 9)
 
 ## Value-at-Risk coverage (Step 9)
 
