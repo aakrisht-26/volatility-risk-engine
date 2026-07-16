@@ -28,7 +28,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.dialects.postgresql import Insert, insert
 
 from volrisk.validate.schemas import (
     validate_clean_daily_bars,
@@ -85,7 +85,7 @@ _UPDATABLE_COLUMNS = ("open", "high", "low", "close", "adj_close", "volume")
 _CLEAN_UPDATABLE_COLUMNS = (*_UPDATABLE_COLUMNS, "log_return")
 
 
-def build_upsert(table: Table, conflict_cols: Sequence[str], update_cols: Sequence[str]):
+def build_upsert(table: Table, conflict_cols: Sequence[str], update_cols: Sequence[str]) -> Insert:
     """INSERT ... ON CONFLICT (natural key) DO UPDATE — revisable rows, zero duplicates.
 
     The table's timestamp column (loaded_at or computed_at) is refreshed on
@@ -99,7 +99,7 @@ def build_upsert(table: Table, conflict_cols: Sequence[str], update_cols: Sequen
     return stmt.on_conflict_do_update(index_elements=list(conflict_cols), set_=set_)
 
 
-def build_upsert_statement():
+def build_upsert_statement() -> Insert:
     """INSERT ... ON CONFLICT (ticker, trade_date) DO UPDATE for raw daily bars."""
     return build_upsert(DAILY_BARS, ("ticker", "trade_date"), _UPDATABLE_COLUMNS)
 

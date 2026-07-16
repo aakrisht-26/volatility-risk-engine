@@ -6,6 +6,12 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 authors = [{ name = "Aakrisht Yadav" }]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
 dependencies = [
     "arch>=8.0.0",
     "lightgbm>=4.6.0",
@@ -19,6 +25,10 @@ dependencies = [
     "sqlalchemy>=2.0.51",
     "yfinance>=1.5.1",
 ]
+
+[project.urls]
+Repository = "https://github.com/aakrisht-26/volatility-risk-engine"
+Issues = "https://github.com/aakrisht-26/volatility-risk-engine/issues"
 
 [build-system]
 requires = ["hatchling"]
