@@ -58,7 +58,9 @@ def test_backfill_rerun_is_idempotent(tmp_path: Path) -> None:
 
 
 def test_run_backfill_covers_all_tickers(tmp_path: Path) -> None:
-    counts = run_backfill(FakeProvider(), ("^GSPC", "AAPL"), years=1, out_dir=tmp_path)
+    counts = run_backfill(
+        FakeProvider(), ("^GSPC", "AAPL"), start=date(2024, 1, 1), out_dir=tmp_path
+    )
 
     assert counts == {"^GSPC": 2, "AAPL": 2}
     assert (tmp_path / "GSPC.parquet").exists()

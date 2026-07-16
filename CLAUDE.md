@@ -31,7 +31,7 @@ This is a RISK ANALYTICS project. Nothing in this repo — code, comments, docst
 
 ## Data decisions
 - Phase-1 basket (US): ^GSPC, ^VIX, AAPL, MSFT, NVDA, JPM, XOM, TSLA
-- Backfill: 10 years of daily OHLCV; keep both adjusted and unadjusted close.
+- Backfill: fixed inception **2016-07-11** (`BACKFILL_START`; the window does NOT slide — audit fix 2026-07-15, replacing the original "10 years back from today" which eroded landing-zone replayability). Trailing edge = today. Keep both adjusted and unadjusted close. Invariant: per-ticker parquet row count == raw.daily_bars row count after load.
 - ^VIX ruling (2026-07-12, permanent — do not re-litigate): ^VIX is reference data only, excluded from the forecast/VaR universe. Rationale: spot VIX is not a holdable asset, so "risk of a VIX position" is ill-posed here. Its roles are implied-vol comparison and candidate exogenous feature (e.g. lagged level/change as regressors for other tickers' vol models).
 - Daily bars carry `trade_date` as a DATE in exchange-local terms; no intraday timestamps. Any operational timestamps (job runs, load times) are stored UTC.
 - Phase-2 basket (India, CONDITIONAL): ^NSEI, RELIANCE.NS, HDFCBANK.NS, INFY.NS, TCS.NS — added at Step 10 only if a data-quality audit passes (gap rate vs exchange calendar, zero-volume days, adjustment sanity around known splits). If the audit fails, document findings in the README and skip. Do not add India before Step 10.
@@ -47,8 +47,9 @@ DB schemas: `raw`, `clean`, `features`, `forecasts`. Natural key everywhere: (ti
 - Target: next-day variance, annualized with 252 where displayed.
 - HAR components: daily RV, weekly RV (5-day mean), monthly RV (22-day mean).
 - EWMA baseline: RiskMetrics λ = 0.94.
-- Evaluation: walk-forward only (expanding window, minimum ~3y train, refit monthly). Primary loss: QLIKE (robust to noisy volatility proxies). Secondary: RMSE. Never random splits on time series.
-- VaR: 1-day parametric 95% and 99% from each model's vol forecast; coverage tested with the Kupiec POF test.
+- Evaluation: walk-forward only (expanding window, minimum ~3y train, refit monthly). Primary loss: QLIKE, exact form h/f − ln(h/f) − 1 (robust to noisy volatility proxies). Secondary: RMSE in annualized-vol points. Never random splits on time series.
+- Feature-model targets (v2 ruling, 2026-07-12): HAR-RV and LightGBM fit **log variance** and map back with the lognormal half-variance retransformation exp(m + s²/2), s² = training-residual variance re-estimated at each refit. Rationale: level-space fits emitted near-zero forecasts that QLIKE (correctly) exploded on; raw exponentiation targets the conditional median and under-forecasts the mean — the direction risk work must not err in. HAR-RV is Corsi's **log-log** form (ln components as regressors; log-target-on-level-features provably explodes on vol spikes). LightGBM keeps level features (trees don't extrapolate). The 1e-8 positivity floor is a **canary**: expected floored count is 0; non-zero means investigate upstream.
+- VaR: 1-day parametric 95% and 99% from each model's vol forecast (zero-mean normal; breach when r_d < −VaR); coverage tested with the Kupiec POF test. GK-target models get walk-forward calibrated variants (_cal: training-only mean(r²)/mean(gk_var) ratio) to convert session-range variance to close-to-close before VaR.
 
 ## Target repo structure
 ```
@@ -101,11 +102,14 @@ Step 10 — India audit (conditional expansion). Run the data-quality audit on N
 
 Step 11 — Automation. Nightly incremental job: fetch latest bar → validate → load → incremental features → next-day forecasts + VaR → write back. ARCHITECTURE DECISION to make WITH Aakrisht here: (a) GitHub Actions cron + cloud Postgres (existing EC2 or RDS free tier; DATABASE_URL as an Actions secret) = fully live, strongest story; (b) Windows Task Scheduler + local Postgres = zero cost, less impressive. All connections already go through DATABASE_URL so either works.
 
-Step 12 — Power BI. Produce SQL views for the dashboard plus a page-by-page spec with exact DAX measures (forecast vs realized, VaR breach tracker, model ablation, vol regime timeline). Aakrisht builds it in Power BI Desktop by hand.
+Step 12 — Power BI. Produce SQL views for the dashboard plus a page-by-page spec with exact DAX measures (forecast vs realized, VaR breach tracker, model ablation, vol regime timeline). Aakrisht builds it in Power BI Desktop by hand. Also decided here: the VaR crown (garch_11 vs har_rv_cal, judged on the breach page) and any dashboard-pattern indexes (deferred from the 2026-07-15 audit — decided alongside the actual view queries, not before). Local Postgres port for Power BI: 5433.
 
 Step 13 — Polish. README restructured to lead with the ablation + VaR coverage results, architecture diagram, setup guide, limitations section, resume bullets. MLflow tracking as stretch.
 
 ## Open decisions (do not resolve unilaterally)
-- Step 4: Docker vs native Postgres on this machine.
 - Step 11: automation architecture (a) vs (b).
-- Step 10: India inclusion — decided by the audit results, reviewed together.
+
+## Resolved decisions (recorded; do not re-litigate)
+- Step 4 (resolved 2026-07-10): native PostgreSQL 16.14 at E:\postgresql16, port **5433**, service postgresql-x64-16. A pre-existing PostgreSQL 18 at E:\postgresql owns 5432 — present and untouched, keep it that way. docker-compose.yml remains the documented alternative route.
+- VaR crown (ruled 2026-07-13): no model crowned yet. The two live candidates are **garch_11** (native close-to-close, well-calibrated at 95%, boring-and-defensible) and **har_rv_cal** (best accuracy plus competitive coverage after honest walk-forward calibration). The decision is made at Step 12's VaR breach page, judged on how each reads there.
+- Step 10 / India (ruled 2026-07-13): audit = GO on data quality (all 5 tickers; findings in README, audited 2026-07-13). Integration DEFERRED pending calendar handling; when integrated, the preferred path is option (a): augment the XNSE calendar with NSE's special sessions (Diwali Muhurat, Budget Saturdays) and ad-hoc closures, rather than treating bar dates as authoritative.

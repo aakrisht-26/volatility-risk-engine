@@ -21,6 +21,7 @@ pipeline through Step 9 is unchanged. The roadmap lives in [CLAUDE.md](CLAUDE.md
 A conditional data-quality gate on the Phase-2 basket (^NSEI, RELIANCE.NS, HDFCBANK.NS,
 INFY.NS, TCS.NS) — **an audit only; nothing here is integrated into the pipeline.** Run
 with `uv run python -m volrisk.audit.nse` (10y daily bars vs the `XNSE` calendar).
+**Audited 2026-07-13** — bar counts below reflect that fetch date and drift with re-runs.
 
 | ticker | bars | gap rate¹ | special sessions² | zero-volume | close/adj (today) | max raw move | split jumps³ | verdict |
 |---|---|---|---|---|---|---|---|---|
@@ -177,7 +178,7 @@ remains a documented stretch goal. Kupiec's POF test also has **low power at 99%
 n ≈ 1,756 (only ~17.6 expected breaches): a non-rejection there is weak evidence of
 correct coverage, not proof — 99% p-values are read with that caveat.
 
-## Ablation results (v1)
+## Ablation results (v2)
 
 Next-day variance forecasts, walk-forward only — no random splits, no tuning; every
 forecast uses information through the previous session. `lgbm_vix` adds lagged ^VIX
@@ -284,15 +285,21 @@ docker compose ps          # wait until healthy
 **Then, with either route:**
 
 ```bash
-uv run python -m volrisk.ingest.backfill        # 10y OHLCV -> data/raw/*.parquet (validated)
+uv run python -m volrisk.ingest.backfill        # OHLCV since 2016-07-11 (fixed inception) -> data/raw/*.parquet
 uv run python -m volrisk.db.migrate             # apply db/migrations/*.sql (tracked, idempotent)
 uv run python -m volrisk.db.load_raw            # upsert parquet -> raw.daily_bars (re-run: net 0)
 uv run python -m volrisk.transform.cleaning     # calendar-align -> clean.daily_bars + gap report
 uv run python -m volrisk.features.build         # window functions -> features.daily_features
 uv run python -m volrisk.features.crosscheck    # SQL vs pandas recomputation, per ticker
 uv run python -m volrisk.models.baselines       # walk-forward EWMA + GARCH -> forecasts schema
+uv run python -m volrisk.models.feature_models  # walk-forward HAR-RV + LightGBM (+VIX variant)
+uv run python -m volrisk.evaluate.ablation --write-readme   # QLIKE/RMSE tables -> DB + README
+uv run python -m volrisk.risk.backtest --write-readme       # VaR + Kupiec coverage -> DB + README
 uv run --env-file .env pytest                   # includes DB integration tests
 ```
+
+(The two `--write-readme` flags regenerate the marked result sections below; omit them
+to store results in Postgres only.)
 
 Every load stage upserts on the natural key `(ticker, trade_date)`, so re-running any
 stage is idempotent; recent bars are revisable by design (a fetch during market hours
