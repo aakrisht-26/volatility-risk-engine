@@ -1,5 +1,8 @@
 # Volatility Risk Engine
 
+[![CI](https://github.com/aakrisht-26/volatility-risk-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/aakrisht-26/volatility-risk-engine/actions/workflows/ci.yml)
+[![Nightly pipeline](https://github.com/aakrisht-26/volatility-risk-engine/actions/workflows/nightly.yml/badge.svg)](https://github.com/aakrisht-26/volatility-risk-engine/actions/workflows/nightly.yml)
+
 Automated market risk analytics. The pipeline ingests daily OHLCV data for a basket of US
 equities and indices, stores and transforms it in PostgreSQL, forecasts next-day volatility with
 an ablation ladder of models (EWMA → GARCH(1,1) → HAR-RV → LightGBM), converts forecasts into
@@ -312,3 +315,46 @@ stage excludes until its session has closed).
 Calendar note: ^VIX is CBOE-listed; the XNYS calendar is used as a proxy for the whole
 US basket. That is a deliberate simplification — its artifacts (e.g. a phantom ^VIX bar
 on a market holiday) are surfaced and excluded by the cleaning stage's gap report.
+
+## Automation (Step 11)
+
+A scheduled GitHub Actions job ([nightly.yml](.github/workflows/nightly.yml)) runs the
+whole pipeline every trading day against a **Neon serverless Postgres**:
+migrate → fetch (full anchored backfill via a **yfinance → Stooq fallback chain**) →
+validate → load → clean → features → all forecasts → VaR backtest. One command runs it
+anywhere: `uv run python -m volrisk.ingest.daily_update`.
+
+**Schedule.** `30 22 * * 1-5` (22:30 UTC, Mon–Fri): NYSE closes 16:00 ET = 20:00 UTC
+(EDT) / 21:00 UTC (EST), so one year-round cron line gives 1.5–2.5 h of slack for
+Yahoo's final daily prints and finishes long before the next open. GitHub auto-disables
+scheduled workflows after ~60 days without repo activity; it emails a warning first,
+the workflow keeps a `workflow_dispatch` trigger for manual runs/re-enabling, and the
+repo stays active through the roadmap.
+
+**Canaries are exit codes.** Telescoping-identity failures, negative Garman–Klass
+values, floored predictions, and GARCH fallback/unconverged refits each fail the job
+after the summary prints — every data-quality invariant is re-proven nightly.
+
+**Landing-zone semantics.** The cloud DB is the **system of record**. A runner's
+parquet is deterministic staging, reconstructable from the fixed inception anchor; the
+dev machine's `data/raw/` is the durable replay copy. A **monotonic guard** refuses any
+fetch that would *shrink* a ticker's parquet (`--force` only after investigation);
+guarded tickers fall back to a ~5-trading-day trailing-window fetch landed as dated
+increment files under `data/raw/increments/` — the anchored zone is never overwritten.
+Stooq fallback rows are adjusted-only (`close == adj_close` by policy) and flagged via
+`raw.daily_bars.source`.
+
+**Neon free tier** (verified from [neon.com/docs/introduction/plans](https://neon.com/docs/introduction/plans),
+2026-07-17): $0/month — 100 CU-hours/project/month of compute (autoscaling up to 2 CU),
+0.5 GB storage/project, 5 GB egress/month, scale-to-zero after 5 min (not disableable
+on Free). **Known edge:** exhausting CU-hours or egress **suspends compute until the
+next billing period** (or upgrade), and exceeding the storage cap blocks
+storage-increasing writes. Our footprint — ~10 min of ≤2 CU compute/night ≈ a few
+CU-hours/month and ~0.1 GB of data — sits at roughly 10% of the allowances, so the
+cutoff is documented, not expected.
+
+**Two databases.** Neon is production (the nightly job and Power BI read/write it);
+local Postgres on port 5433 remains the dev/test DB. The cloud DB is seeded by
+**replaying the pipeline from the anchor** (run `daily_update` once locally with
+`DATABASE_URL` pointed at Neon) — which doubles as the landing-zone replayability
+proof.
