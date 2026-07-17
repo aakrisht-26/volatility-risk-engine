@@ -38,7 +38,7 @@ from volrisk.validate.schemas import (
 
 logger = logging.getLogger(__name__)
 
-# Static mirror of db/migrations/001_raw.sql — no runtime reflection needed.
+# Static mirror of db/migrations/001_raw.sql (+ 008 source column).
 DAILY_BARS = Table(
     "daily_bars",
     MetaData(schema="raw"),
@@ -50,6 +50,7 @@ DAILY_BARS = Table(
     Column("close", Double, nullable=False),
     Column("adj_close", Double, nullable=False),
     Column("volume", BigInteger),
+    Column("source", Text, nullable=False),
     Column("loaded_at", DateTime(timezone=True), server_default=func.now()),
 )
 
@@ -81,8 +82,8 @@ VARIANCE_FORECASTS = Table(
     Column("loaded_at", DateTime(timezone=True), server_default=func.now()),
 )
 
-_UPDATABLE_COLUMNS = ("open", "high", "low", "close", "adj_close", "volume")
-_CLEAN_UPDATABLE_COLUMNS = (*_UPDATABLE_COLUMNS, "log_return")
+_UPDATABLE_COLUMNS = ("open", "high", "low", "close", "adj_close", "volume", "source")
+_CLEAN_UPDATABLE_COLUMNS = ("open", "high", "low", "close", "adj_close", "volume", "log_return")
 
 
 def build_upsert(table: Table, conflict_cols: Sequence[str], update_cols: Sequence[str]) -> Insert:
@@ -119,10 +120,16 @@ def frame_to_records(df: pd.DataFrame) -> list[dict]:
     return df.astype(object).where(df.notna(), None).to_dict("records")
 
 
-def upsert_daily_bars(engine: Engine, df: pd.DataFrame, context: str = "") -> int:
-    """Validate one canonical batch and upsert it; returns the batch row count."""
+def upsert_daily_bars(
+    engine: Engine, df: pd.DataFrame, context: str = "", source: str = "yfinance"
+) -> int:
+    """Validate one canonical batch and upsert it; returns the batch row count.
+
+    ``source`` stamps raw.daily_bars.source AFTER pandera validation (the
+    canonical provider contract stays 8 columns; provenance is loader metadata).
+    """
     validate_daily_bars(df, context=context)
-    records = frame_to_records(df)
+    records = frame_to_records(df.assign(source=source))
     with engine.begin() as conn:
         conn.execute(build_upsert_statement(), records)
     return len(records)

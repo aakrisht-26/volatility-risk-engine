@@ -8,10 +8,14 @@ validation, or modeling code.
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from datetime import date
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 #: Canonical column order for daily bars everywhere downstream.
 #: ``trade_date`` is the exchange-local trading day (a DATE, no intraday time).
@@ -41,3 +45,31 @@ class OHLCVProvider(ABC):
         (ticker, trade_date) pairs. Raise ``ValueError`` if the provider returns
         no usable data.
         """
+
+
+class FallbackProvider(OHLCVProvider):
+    """Try providers in order per ticker; record which one served each ticker.
+
+    ``sources`` maps ticker -> the NAME of the provider whose fetch last
+    succeeded for it, so the loader can stamp raw.daily_bars.source and keep
+    mixed-provider rows auditable (Step-11 ruling).
+    """
+
+    def __init__(self, providers: Sequence[tuple[str, OHLCVProvider]]) -> None:
+        if not providers:
+            raise ValueError("FallbackProvider needs at least one provider")
+        self._providers = list(providers)
+        self.sources: dict[str, str] = {}
+
+    def fetch_daily_ohlcv(self, ticker: str, start: date, end: date) -> pd.DataFrame:
+        last_error: Exception | None = None
+        for name, provider in self._providers:
+            try:
+                df = provider.fetch_daily_ohlcv(ticker, start, end)
+            except Exception as exc:  # any provider failure means: try the next one
+                logger.warning("%s: provider %r failed (%s); trying next", ticker, name, exc)
+                last_error = exc
+                continue
+            self.sources[ticker] = name
+            return df
+        raise RuntimeError(f"{ticker}: every provider failed") from last_error
