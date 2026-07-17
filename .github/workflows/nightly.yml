@@ -1,0 +1,44 @@
+# Nightly pipeline (Step 11, architecture option (a)).
+#
+# Schedule reasoning: NYSE closes 16:00 ET = 20:00 UTC (EDT) / 21:00 UTC (EST).
+# 22:30 UTC gives 1.5-2.5 h of slack for Yahoo's final daily prints in both DST
+# regimes with one year-round cron line, and finishes long before the next
+# open. Mon-Fri only: each session's close falls on the same UTC weekday.
+#
+# GitHub disables scheduled workflows after ~60 days without repo activity.
+# Mitigation: workflow_dispatch stays available for manual runs/re-enable, the
+# repo remains active through Step 13, and GitHub emails a warning before
+# disabling — documented in the README.
+name: Nightly pipeline
+
+on:
+  schedule:
+    - cron: "30 22 * * 1-5"
+  workflow_dispatch: {}
+
+concurrency: nightly  # a delayed cron never overlaps a manual run
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install Python (version pinned in .python-version)
+        run: uv python install
+
+      - name: Sync dependencies from lockfile
+        run: uv sync --locked
+
+      - name: Run nightly pipeline
+        run: uv run python -m volrisk.ingest.daily_update
+        env:
+          # Neon connection string (sslmode=require). Actions masks secret
+          # values in logs; the code never prints DATABASE_URL.
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
