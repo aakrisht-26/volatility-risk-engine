@@ -14,10 +14,11 @@ an ablation ladder of models (EWMA → GARCH(1,1) → HAR-RV → LightGBM), conv
 
 ## Status
 
-Step 10 of 13 — India NSE data-quality audit (conditional gate). The five Phase-2 NSE
-tickers were audited for gap rate, zero-volume days, and adjustment sanity; the data
-passed, and integration awaits review of the one calendar caveat below. The forecasting
-pipeline through Step 9 is unchanged. The roadmap lives in [CLAUDE.md](CLAUDE.md).
+Step 12 of 13 (spec phase) — the Power BI surface is live in the database: six views in
+the `dashboard` schema plus the dashboard indexes (migration 009), and a page-by-page
+build spec with exact DAX in [docs/powerbi_spec.md](docs/powerbi_spec.md). Step 11's
+nightly automation is built and rehearsed with activation pending (see Automation
+below). The roadmap lives in [CLAUDE.md](CLAUDE.md).
 
 ## India NSE audit (Step 10)
 
@@ -317,6 +318,12 @@ US basket. That is a deliberate simplification — its artifacts (e.g. a phantom
 on a market holiday) are surfaced and excluded by the cleaning stage's gap report.
 
 ## Automation (Step 11)
+
+> **Status: built and rehearsed end to end — activation pending.** The full nightly job
+> ran locally with exit 0, all canaries zero, in ~5 minutes; the scheduled workflow is
+> **deliberately disabled** until the Neon seed/secret activation checklist (recorded in
+> CLAUDE.md) is executed, so the Nightly badge above reflects a paused schedule, not a
+> failure.
 
 A scheduled GitHub Actions job ([nightly.yml](.github/workflows/nightly.yml)) runs the
 whole pipeline every trading day against a **Neon serverless Postgres**:

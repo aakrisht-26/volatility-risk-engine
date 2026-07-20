@@ -109,6 +109,9 @@ Step 13 — Polish. README restructured to lead with the ablation + VaR coverage
 ## Open decisions (do not resolve unilaterally)
 - (none currently)
 
+## Pending items
+- Step 11 ACTIVATION (deferred by Aakrisht 2026-07-18; code accepted, schedule disabled). Checklist, in order: (1) create Neon project — database `volrisk`, AWS US-East region, Postgres 16; (2) copy the DIRECT connection string and change the prefix to `postgresql+psycopg://`, keep `?sslmode=require`; (3) seed by replay from the dev machine: `$env:DATABASE_URL="<neon>"; uv run python -m volrisk.ingest.daily_update` → must end `nightly job OK`; (4) `gh secret set DATABASE_URL` with the same string; (5) re-enable the workflow (GitHub → Actions → Nightly pipeline → Enable workflow) and run one manual `workflow_dispatch` to green; (6) confirm the first cron run (22:30 UTC) goes green. Until then the README documents the paused state.
+
 ## Resolved decisions (recorded; do not re-litigate)
 - Step 11 (resolved 2026-07-17): architecture option (a) — GitHub Actions cron + **Neon serverless Postgres free tier** (not EC2, not RDS; Supabase is the fallback host if Neon surprises). Nightly job = full anchored re-fetch through a yfinance→Stooq fallback chain, full re-run of clean/features/forecasts/VaR (revisit incremental only if job time exceeds ~20 min), canaries promoted to exit codes. Stooq rows are adjusted-only: close == adj_close, flagged via raw.daily_bars.source.
 - Landing-zone semantics under ephemeral runners (ruled 2026-07-17): the cloud DB is the **system of record**; a runner's parquet is deterministic staging reconstructable from the anchor; Aakrisht's local data/raw is the durable replay copy. The monotonic guard refuses shrinking parquet overwrites (--force only after investigation); trailing-window fallbacks land as dated increment files under data/raw/increments/, never overwriting the anchored zone.
