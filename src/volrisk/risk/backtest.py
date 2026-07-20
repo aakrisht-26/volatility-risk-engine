@@ -29,7 +29,8 @@ import pandas as pd
 from sqlalchemy import Engine, text
 
 from volrisk.db.engine import get_engine
-from volrisk.db.loaders import store_var_results
+from volrisk.db.loaders import store_var_results, upsert_variance_forecasts
+from volrisk.models.baselines import forecasts_frame
 from volrisk.risk.kupiec import kupiec_pof
 from volrisk.risk.var import LEVELS, TAIL_PROB, breach_mask, var_threshold
 
@@ -135,8 +136,13 @@ def prediction_i_confirmed(coverage: pd.DataFrame) -> bool:
 
 
 def _per_ticker_wide(fdf: pd.DataFrame) -> dict[str, tuple[pd.DataFrame, pd.Series]]:
+    """Base-model forecast matrix per ticker. Restricted to BASE_MODEL_ORDER so
+    persisted _cal rows (stored for the dashboard) are never re-consumed as
+    inputs — the calibrated variants are always derived fresh from their base
+    series and the training-only calibration factors."""
     per_ticker: dict[str, tuple[pd.DataFrame, pd.Series]] = {}
-    for ticker, g in fdf.groupby("ticker", sort=True):
+    base = fdf[fdf["model"].isin(BASE_MODEL_ORDER)]
+    for ticker, g in base.groupby("ticker", sort=True):
         wide = g.pivot(index="trade_date", columns="model", values="var_forecast").dropna()
         ret = g.drop_duplicates("trade_date").set_index("trade_date")["log_return"].loc[wide.index]
         per_ticker[ticker] = (wide, ret)
@@ -185,9 +191,18 @@ def compute_backtest(engine: Engine) -> tuple[pd.DataFrame, pd.DataFrame, bool]:
             for model in GK_TARGET_MODELS:
                 if model not in wide.columns:
                     continue
-                rows, frames = _collect(ticker, model + CAL_SUFFIX, ret, wide[model] * c)
+                calibrated_series = wide[model] * c
+                rows, frames = _collect(ticker, model + CAL_SUFFIX, ret, calibrated_series)
                 cov_rows += rows
                 breach_frames += frames
+                # Persist the calibrated series as first-class forecast rows so
+                # the dashboard (dashboard.v_var_daily etc.) can chart the _cal
+                # variants' VaR bands — required for the Step-12 crown page.
+                upsert_variance_forecasts(
+                    engine,
+                    forecasts_frame(ticker, calibrated_series, model + CAL_SUFFIX),
+                    context=f"{ticker}:{model}{CAL_SUFFIX}",
+                )
         coverage = pd.DataFrame(cov_rows)
 
     breaches = pd.concat(breach_frames, ignore_index=True) if breach_frames else pd.DataFrame()
