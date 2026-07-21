@@ -12,7 +12,9 @@ import pandas_market_calendars as mcal
 import pytest
 
 from volrisk.risk.backtest import (
+    BASE_MODEL_ORDER,
     CALIBRATION_TRIGGER_RATE,
+    _per_ticker_wide,
     calibration_factors,
     evaluate_coverage,
     prediction_i_confirmed,
@@ -99,6 +101,29 @@ def test_calibration_factors_are_monthly_steps_without_lookahead() -> None:
     train = feat[feat["trade_date"] < d0]
     assert c.iloc[0] == pytest.approx(train["r2"].mean() / train["gk_var"].mean())
     assert c.iloc[0] > 1.0  # r2 exceeds gk_var, so calibration inflates variance
+
+
+def test_persisted_cal_rows_are_never_reconsumed_as_calibration_inputs() -> None:
+    """The circular-calibration failure mode: _cal rows are persisted for the
+    dashboard, so the backtest's base matrix must exclude them — calibrated
+    variants are always derived fresh from base series + training-only factors."""
+    dates = sessions(3)
+    frames = [
+        pd.DataFrame(
+            {
+                "ticker": "AAPL",
+                "trade_date": dates,
+                "model": model,
+                "var_forecast": 2.0e-4,
+                "log_return": [0.01, -0.01, 0.005],
+            }
+        )
+        for model in [*BASE_MODEL_ORDER, "har_rv_cal", "lgbm_cal", "lgbm_vix_cal"]
+    ]
+
+    wide, _ = _per_ticker_wide(pd.concat(frames, ignore_index=True))["AAPL"]
+
+    assert set(wide.columns) == set(BASE_MODEL_ORDER)  # no _cal column ever
 
 
 def test_prediction_confirmation_criterion() -> None:
