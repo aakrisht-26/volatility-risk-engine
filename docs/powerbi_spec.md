@@ -103,9 +103,14 @@ Formatting: `Kupiec p` 3 decimals; rates/vols 1–2 decimals; dates dd-mmm-yyyy.
 
 ### Page 1 — Overview
 - Cards: **Latest Data Date**, **Data Age (days)** (conditional format: background
-  red when > 4 — data is stale), and per-candidate **latest ann. vol** — two
-  multi-row cards from `v_latest_forecast` filtered (visual-level) to
-  `model = garch_11` and `model = har_rv_cal`, fields ticker + `ann_vol_pct`.
+  red when > 4 — data is stale), and the **live next-session VaR card** for the
+  FEATURED model: multi-row card from `v_latest_forecast` filtered (visual-level)
+  to `model = har_rv_cal` and `is_live = True`, fields ticker + `ann_vol_pct` —
+  title it "Next-session vol forecast (live)". A second, smaller card shows the
+  benchmark (`model = garch_11`, `is_live = True`).
+- Live rows are the forecast FOR the next session after the last completed one
+  (flag `is_live`); they are excluded from every backtest/evaluation table by
+  construction and by tested filters.
 - Slicer: none (this page is glanceable).
 - Text box: one-line positioning statement (risk analytics, not signals).
 
@@ -143,12 +148,19 @@ Slicers at top: `DimTicker[ticker]` (single-select), `v_var_daily[level]`
 | Avg daily VaR (capital) 95 / 99 | 3.514% / 4.970% | 3.532% / 4.995% (dead heat) |
 | Accuracy context | wins r² proxy QLIKE | wins GK-proxy QLIKE + RMSE everywhere |
 
-**Decision procedure on the page**: with capital efficiency tied, the crown
-hangs on which coverage failure you prefer — garch_11 is *exact* at 95% but
-worst-in-class at 99%; har_rv_cal is slightly conservative at 95% (the right
-side to miss, for risk) and materially closer to nominal at 99%.
-**Recommendation: har_rv_cal**, with garch_11 as the stated benchmark. The
-crown is Aakrisht's call after seeing the page render.
+**Crown status (PROVISIONAL, ruled 2026-07-20): har_rv_cal is the FEATURED
+model across the dashboard; garch_11 is the stated BENCHMARK on every page
+where both appear** — label them exactly that way in visual titles. Rationale:
+capital dead heat, conservative-side 95% miss, least-bad 99%.
+
+**The one render check that can flip it — breach clustering.** Kupiec tests
+frequency, not independence. On this page's return-vs-VaR band and cumulative
+charts, compare WHERE the two models' breaches fall: if har_rv_cal's breaches
+visibly cluster inside crisis windows (staircase jumps in its cumulative line,
+e.g. around 2020-03 or 2022) while garch_11's spread evenly, the crown is
+revisited. Stretch item, recorded not built: the **Christoffersen (1998)
+independence test** — the natural Kupiec companion that formalizes exactly
+this eyeball check.
 
 ### Page 4 — Model Ablation
 - Matrix: Rows `ticker`, Columns `model`, Values **QLIKE**; second matrix for
@@ -166,11 +178,15 @@ crown is Aakrisht's call after seeing the page render.
 
 ## 4. Notes & known semantics
 
-- **Freshest-forecast semantics**: the newest row per model is the forecast FOR
-  the most recent completed session (used in backtesting). A true
-  next-session-ahead row (t+1 "live" VaR before tomorrow's open) is a small
-  runner extension, deliberately not built yet — flag if wanted for the
-  Overview page.
+- **Freshest-forecast semantics**: every model now also emits a **live
+  next-session row** (`is_live = true`) — the forecast for the first session
+  after the last completed one, including calibrated `_cal` variants (base live
+  row × the month's training-only factor). Live rows surface in
+  `v_latest_forecast` for the Overview card and are excluded from
+  backtest/coverage/ablation both structurally (no realized outcome to join)
+  and by explicit `NOT is_live` filters, pinned by tests. When the session
+  completes, the nightly walk-forward re-emits the date and the upsert flips
+  the flag to false.
 - The `_cal` variants are persisted as first-class forecast rows nightly (the
   ablation's QLIKE/RMSE tables deliberately exclude them; coverage includes them).
 - Deferred-index decision (2026-07-15 audit) is settled in migration 009:
