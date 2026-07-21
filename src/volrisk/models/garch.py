@@ -55,6 +55,20 @@ class GarchWalkForwardResult:
     fallback_refits: int = 0  # failed refits where the previous refit's params were reused
     unconverged_consumed: int = 0  # first fit unconverged, consumed loudly (no fallback exists)
     fallback_dates: list[date] = field(default_factory=list)
+    final_params: GarchParams | None = None  # the last refit's params (for the live row)
+
+
+def garch_next_step(params: GarchParams, last_return: float, last_variance: float) -> float:
+    """One GARCH step in RETURN units: the live next-session variance.
+
+    ``last_return`` is the most recent completed session's log return and
+    ``last_variance`` that session's conditional variance forecast (return
+    units, as stored). Scaling to arch's percent space and back is internal.
+    """
+    eps_pct = last_return * RETURN_TO_PCT - params.mu
+    s2_pct = last_variance / PCT_VAR_TO_RETURN_VAR
+    live_pct = params.omega + params.alpha * eps_pct**2 + params.beta * s2_pct
+    return live_pct * PCT_VAR_TO_RETURN_VAR
 
 
 def fit_garch_params(returns_pct: pd.Series) -> GarchFit:
@@ -160,4 +174,5 @@ def garch_variance_forecasts(returns: pd.Series, min_train: int = 756) -> GarchW
     result.forecasts = (pd.Series(out, index=returns.index) * PCT_VAR_TO_RETURN_VAR).iloc[
         min_train:
     ]
+    result.final_params = params
     return result

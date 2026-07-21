@@ -40,6 +40,9 @@ class WalkForwardResult:
     floored: int = 0
     skipped_incomplete: int = 0
     final_model: VarianceRegressor | None = None
+    #: Prediction from the LAST feature row — the forecast for the next session
+    #: after the data ends (the "live" row; no realized outcome exists yet).
+    live_forecast: float | None = None
 
 
 def walk_forward_feature_forecasts(
@@ -93,4 +96,15 @@ def walk_forward_feature_forecasts(
 
     result.forecasts = pd.Series(out_vals, index=out_dates, dtype=float)
     result.final_model = model
+
+    # Live next-session forecast: predict from the LAST feature row (session
+    # n-1's features, known at its close) — the forecast for the session that
+    # follows the data. Floored like every prediction; the floor canary counts it.
+    x_last = X_all.iloc[[n - 1]]
+    if model is not None and not bool(x_last.isna().any(axis=1).iloc[0]):
+        live = float(model.predict(x_last)[0])
+        if live < VARIANCE_FLOOR:
+            live = VARIANCE_FLOOR
+            result.floored += 1
+        result.live_forecast = live
     return result

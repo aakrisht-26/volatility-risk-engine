@@ -68,6 +68,15 @@ def last_completed_session(calendar, as_of: datetime) -> date:
     return done.index[-1].date()
 
 
+def next_session(after: date, exchange: str = EXCHANGE) -> date:
+    """First trading session strictly after ``after`` (weekends/holidays skipped)."""
+    calendar = mcal.get_calendar(exchange)
+    sched = calendar.schedule(
+        start_date=after + pd.Timedelta(days=1), end_date=after + pd.Timedelta(days=14)
+    )
+    return sched.index[0].date()
+
+
 def clean_ticker_frame(
     df: pd.DataFrame, calendar, as_of: datetime
 ) -> tuple[pd.DataFrame, TickerGapReport]:

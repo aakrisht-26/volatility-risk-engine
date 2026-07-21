@@ -36,12 +36,14 @@ README_END = "<!-- ABLATION:END -->"
 
 
 def load_forecasts_with_realized(engine: Engine) -> pd.DataFrame:
+    # NOT is_live is explicit even though the features join would usually
+    # exclude live rows structurally: no realized outcome, never evaluated.
     return pd.read_sql_query(
         text(
             "SELECT f.ticker, f.trade_date, f.model, f.var_forecast, x.gk_var AS realized"
             " FROM forecasts.daily_variance f"
             " JOIN features.daily_features x USING (ticker, trade_date)"
-            " WHERE x.gk_var > 0"
+            " WHERE x.gk_var > 0 AND NOT f.is_live"
             " ORDER BY f.ticker, f.trade_date"
         ),
         engine,

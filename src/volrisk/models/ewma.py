@@ -14,6 +14,14 @@ RISKMETRICS_LAMBDA = 0.94
 SEED_WINDOW = 252
 
 
+def ewma_next_step(
+    last_forecast: float, last_return: float, lam: float = RISKMETRICS_LAMBDA
+) -> float:
+    """One EWMA step: the live next-session variance from the newest completed
+    session's forecast and realized return (all in return units)."""
+    return lam * last_forecast + (1.0 - lam) * last_return**2
+
+
 def ewma_variance_forecasts(
     returns: pd.Series,
     lam: float = RISKMETRICS_LAMBDA,

@@ -19,12 +19,13 @@ from sqlalchemy import text
 
 import volrisk.models.garch as garch_module
 from volrisk.db.loaders import upsert_variance_forecasts
-from volrisk.models.ewma import ewma_variance_forecasts
+from volrisk.models.ewma import ewma_next_step, ewma_variance_forecasts
 from volrisk.models.garch import (
     GarchFit,
     GarchParams,
     filter_conditional_variance,
     fit_garch_params,
+    garch_next_step,
     garch_variance_forecasts,
 )
 
@@ -142,6 +143,27 @@ def test_garch_output_is_daily_variance_in_return_units(fixed_fit: list[int]) ->
     # With FIXED_PARAMS the unconditional pct² variance is 0.02/0.05 = 0.4,
     # i.e. 4e-5 in return units. A x10 000 mismatch would sit near 0.4.
     assert ((out > 1e-6) & (out < 1e-2)).all()
+
+
+# --- live next-session steps (Step-12 ruling; pure math, hand values) ---
+
+
+def test_ewma_next_step_hand_value() -> None:
+    # 0.94 * 2e-4 + 0.06 * (0.01)^2 = 1.88e-4 + 6e-6 = 1.94e-4
+    assert ewma_next_step(2.0e-4, 0.01, lam=0.94) == pytest.approx(1.94e-4, rel=1e-12)
+
+
+def test_garch_next_step_hand_value_and_units() -> None:
+    # FIXED_PARAMS (mu=0, omega=0.02, alpha=0.05, beta=0.90), pct^2 space:
+    # eps = 0.01*100 = 1.0; s2 = 2e-4 * 1e4 = 2.0
+    # live_pct = 0.02 + 0.05*1 + 0.90*2 = 1.87 -> 1.87e-4 in return units.
+    live = garch_next_step(FIXED_PARAMS, last_return=0.01, last_variance=2.0e-4)
+    assert live == pytest.approx(1.87e-4, rel=1e-12)
+
+
+def test_garch_result_exposes_final_params(fixed_fit: list[int]) -> None:
+    result = garch_variance_forecasts(returns_series(40), min_train=10)
+    assert result.final_params == FIXED_PARAMS
 
 
 # --- convergence policy (mocked failing fits; no optimizer) ---

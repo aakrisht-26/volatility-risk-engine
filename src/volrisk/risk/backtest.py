@@ -50,12 +50,15 @@ README_END = "<!-- VAR:END -->"
 
 
 def load_forecasts_and_returns(engine: Engine) -> pd.DataFrame:
+    # NOT is_live is explicit even though the clean join would usually exclude
+    # live rows structurally: a live row has no realized outcome and must never
+    # enter coverage (pinned by tests).
     return pd.read_sql_query(
         text(
             "SELECT f.ticker, f.trade_date, f.model, f.var_forecast, c.log_return"
             " FROM forecasts.daily_variance f"
             " JOIN clean.daily_bars c USING (ticker, trade_date)"
-            " WHERE c.log_return IS NOT NULL"
+            " WHERE c.log_return IS NOT NULL AND NOT f.is_live"
             " ORDER BY f.ticker, f.trade_date"
         ),
         engine,
@@ -204,6 +207,32 @@ def compute_backtest(engine: Engine) -> tuple[pd.DataFrame, pd.DataFrame, bool]:
                     context=f"{ticker}:{model}{CAL_SUFFIX}",
                 )
         coverage = pd.DataFrame(cov_rows)
+
+        # Live _cal rows: calibrate each GK model's live next-session forecast
+        # with the training-only factor for its month, so the featured model's
+        # Overview card has a live VaR too. Flagged is_live like their bases.
+        live = pd.read_sql_query(
+            text(
+                "SELECT ticker, trade_date, model, var_forecast"
+                " FROM forecasts.daily_variance"
+                " WHERE is_live AND model = ANY(:models)"
+            ),
+            engine,
+            params={"models": list(GK_TARGET_MODELS)},
+        )
+        for row in live.itertuples():
+            tfeat = feats[feats["ticker"] == row.ticker]
+            factor = float(calibration_factors(tfeat, [row.trade_date]).iloc[0])
+            upsert_variance_forecasts(
+                engine,
+                forecasts_frame(
+                    row.ticker,
+                    pd.Series([row.var_forecast * factor], index=[row.trade_date]),
+                    row.model + CAL_SUFFIX,
+                ),
+                context=f"{row.ticker}:{row.model}{CAL_SUFFIX}:live",
+                is_live=True,
+            )
 
     breaches = pd.concat(breach_frames, ignore_index=True) if breach_frames else pd.DataFrame()
     return coverage, breaches, calibrated

@@ -39,6 +39,7 @@ from volrisk.models.baselines import MIN_TRAIN_SESSIONS, NON_MODELED_TICKERS, fo
 from volrisk.models.har import HAR_FEATURES, har_coefficients, make_har_model
 from volrisk.models.lgbm import LGBM_FEATURES, make_lgbm_model
 from volrisk.models.logspace import LogVarianceRegressor
+from volrisk.transform.cleaning import next_session
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,16 @@ def run_feature_models(
             n = upsert_variance_forecasts(
                 engine, forecasts_frame(ticker, result.forecasts, tag), context=f"{ticker}:{tag}"
             )
+            if result.live_forecast is not None:
+                live_date = next_session(data["trade_date"].max())
+                upsert_variance_forecasts(
+                    engine,
+                    forecasts_frame(
+                        ticker, pd.Series([result.live_forecast], index=[live_date]), tag
+                    ),
+                    context=f"{ticker}:{tag}:live",
+                    is_live=True,
+                )
             row = {
                 "ticker": ticker,
                 "model": tag,

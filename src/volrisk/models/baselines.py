@@ -23,8 +23,9 @@ from sqlalchemy import Engine, text
 
 from volrisk.db.engine import get_engine
 from volrisk.db.loaders import upsert_variance_forecasts
-from volrisk.models.ewma import ewma_variance_forecasts
-from volrisk.models.garch import garch_variance_forecasts
+from volrisk.models.ewma import ewma_next_step, ewma_variance_forecasts
+from volrisk.models.garch import garch_next_step, garch_variance_forecasts
+from volrisk.transform.cleaning import next_session
 
 logger = logging.getLogger(__name__)
 
@@ -73,8 +74,27 @@ def run_baselines(
     for ticker in tickers:
         r = returns[returns["ticker"] == ticker].set_index("trade_date")["log_return"]
         garch_result = garch_variance_forecasts(r, min_train=min_train)
+        ewma_series = ewma_variance_forecasts(r, min_train=min_train)
+
+        # Live next-session rows (Step-12 ruling): one more recursion step from
+        # the newest completed session; flagged is_live, excluded from
+        # backtest/coverage/ablation until the session completes.
+        live_date = next_session(r.index[-1])
+        live_values = {EWMA_TAG: ewma_next_step(float(ewma_series.iloc[-1]), float(r.iloc[-1]))}
+        if garch_result.final_params is not None:
+            live_values[GARCH_TAG] = garch_next_step(
+                garch_result.final_params, float(r.iloc[-1]), float(garch_result.forecasts.iloc[-1])
+            )
+        for model, live in live_values.items():
+            upsert_variance_forecasts(
+                engine,
+                forecasts_frame(ticker, pd.Series([live], index=[live_date]), model),
+                context=f"{ticker}:{model}:live",
+                is_live=True,
+            )
+
         for model, series, convergence in (
-            (EWMA_TAG, ewma_variance_forecasts(r, min_train=min_train), None),
+            (EWMA_TAG, ewma_series, None),
             (GARCH_TAG, garch_result.forecasts, garch_result),
         ):
             n = upsert_variance_forecasts(

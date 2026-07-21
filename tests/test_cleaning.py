@@ -16,7 +16,7 @@ import pytest
 from sqlalchemy import text
 
 from volrisk.db.loaders import upsert_clean_daily_bars
-from volrisk.transform.cleaning import clean_ticker_frame, last_completed_session
+from volrisk.transform.cleaning import clean_ticker_frame, last_completed_session, next_session
 from volrisk.transform.returns import add_log_returns, telescoping_check
 
 XNYS = mcal.get_calendar("XNYS")
@@ -48,6 +48,12 @@ def make_raw_frame(dates: list[date], ticker: str = "TEST") -> pd.DataFrame:
 def test_last_completed_session_flips_at_market_close() -> None:
     assert last_completed_session(XNYS, DURING_HOURS) == date(2024, 1, 8)
     assert last_completed_session(XNYS, AFTER_CLOSE) == date(2024, 1, 9)
+
+
+def test_next_session_skips_weekends_and_holidays() -> None:
+    assert next_session(date(2024, 1, 3)) == date(2024, 1, 4)  # plain weekday
+    # Friday 2024-01-12 -> MLK Monday is a holiday -> Tuesday 2024-01-16.
+    assert next_session(date(2024, 1, 12)) == date(2024, 1, 16)
 
 
 def test_clean_frame_classifies_missing_extra_and_partial() -> None:

@@ -28,6 +28,12 @@ def test_every_dashboard_view_is_queryable(db_engine) -> None:
 
 
 @requires_db
+def test_latest_forecast_view_surfaces_the_live_flag(db_engine) -> None:
+    with db_engine.connect() as conn:
+        conn.execute(text("SELECT is_live FROM dashboard.v_latest_forecast LIMIT 1"))
+
+
+@requires_db
 def test_deferred_indexes_exist(db_engine) -> None:
     with db_engine.connect() as conn:
         names = {

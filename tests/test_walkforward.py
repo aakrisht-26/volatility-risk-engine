@@ -97,8 +97,18 @@ def test_walkforward_refits_monthly_and_floors_negative_predictions() -> None:
     result = walk_forward_feature_forecasts(df, ("gk_var",), AlwaysNegative, min_train=80)
 
     assert result.refits == 3  # Apr (first forecast), May, Jun boundaries
-    assert result.floored == len(result.forecasts)
+    # Every historical prediction floored, plus the live next-session one.
+    assert result.floored == len(result.forecasts) + 1
     assert (result.forecasts == VARIANCE_FLOOR).all()
+    assert result.live_forecast == VARIANCE_FLOOR
+
+
+def test_live_forecast_predicts_from_the_last_feature_row() -> None:
+    df = synthetic_features()
+    result = walk_forward_feature_forecasts(df, ("gk_var",), IdentityGK, min_train=80)
+
+    # Identity model: the live next-session forecast IS the final row's gk_var.
+    assert result.live_forecast == df["gk_var"].iloc[-1]
 
 
 def test_har_model_exposes_named_coefficients() -> None:

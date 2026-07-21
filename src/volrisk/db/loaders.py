@@ -16,6 +16,7 @@ from pathlib import Path
 import pandas as pd
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     Column,
     Date,
     DateTime,
@@ -72,6 +73,7 @@ CLEAN_DAILY_BARS = Table(
 
 # Next-day variance forecasts; var_forecast is daily variance in RETURN units
 # (see db/migrations/004_forecasts.sql — the units comment there is load-bearing).
+# is_live marks the next-session row with no realized outcome yet (010).
 VARIANCE_FORECASTS = Table(
     "daily_variance",
     MetaData(schema="forecasts"),
@@ -79,6 +81,7 @@ VARIANCE_FORECASTS = Table(
     Column("trade_date", Date, primary_key=True),
     Column("model", Text, primary_key=True),
     Column("var_forecast", Double, nullable=False),
+    Column("is_live", Boolean, nullable=False),
     Column("loaded_at", DateTime(timezone=True), server_default=func.now()),
 )
 
@@ -175,13 +178,22 @@ def upsert_ablation_metrics(engine: Engine, df: pd.DataFrame) -> int:
     return len(records)
 
 
-def upsert_variance_forecasts(engine: Engine, df: pd.DataFrame, context: str = "") -> int:
-    """Validate one batch of variance forecasts and upsert it."""
+def upsert_variance_forecasts(
+    engine: Engine, df: pd.DataFrame, context: str = "", is_live: bool = False
+) -> int:
+    """Validate one batch of variance forecasts and upsert it.
+
+    ``is_live`` flags next-session rows (no realized outcome yet); stamped after
+    pandera validation, like ``source`` on raw bars. When the session completes,
+    the regular walk-forward re-emits the date and the upsert flips it to False.
+    """
     validate_variance_forecasts(df, context=context)
-    records = frame_to_records(df)
+    records = frame_to_records(df.assign(is_live=is_live))
     with engine.begin() as conn:
         conn.execute(
-            build_upsert(VARIANCE_FORECASTS, ("ticker", "trade_date", "model"), ("var_forecast",)),
+            build_upsert(
+                VARIANCE_FORECASTS, ("ticker", "trade_date", "model"), ("var_forecast", "is_live")
+            ),
             records,
         )
     return len(records)
