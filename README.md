@@ -3,86 +3,93 @@
 [![CI](https://github.com/aakrisht-26/volatility-risk-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/aakrisht-26/volatility-risk-engine/actions/workflows/ci.yml)
 [![Nightly pipeline](https://github.com/aakrisht-26/volatility-risk-engine/actions/workflows/nightly.yml/badge.svg)](https://github.com/aakrisht-26/volatility-risk-engine/actions/workflows/nightly.yml)
 
-Automated market risk analytics. The pipeline ingests daily OHLCV data for a basket of US
-equities and indices, stores and transforms it in PostgreSQL, forecasts next-day volatility with
-an ablation ladder of models (EWMA → GARCH(1,1) → HAR-RV → LightGBM), converts forecasts into
-1-day Value-at-Risk with coverage backtesting, and feeds a Power BI dashboard.
+Next-day **volatility forecasting and Value-at-Risk backtesting** for a basket of US
+equities and indices: a PostgreSQL pipeline from raw OHLCV to walk-forward forecasts
+(EWMA → GARCH(1,1) → HAR-RV → LightGBM), 1-day parametric VaR with Kupiec coverage
+tests, and a dashboard-ready SQL surface. Every result below regenerates from the
+database by one command.
 
-> **Positioning.** This is a risk analytics project. The intellectual core is the distinction
-> that volatility is predictable while returns are not — we forecast risk, never direction.
-> Nothing in this repository is a trading signal, a price prediction, or investment advice.
+> **Positioning.** This is a risk analytics project. The intellectual core is the
+> distinction that volatility is predictable while returns are not — we forecast risk,
+> never direction. Nothing in this repository is a trading signal, a price prediction,
+> or investment advice.
 
-## Status
+## Results — forecast accuracy (ablation)
 
-Step 12 of 13 (spec phase) — the Power BI surface is live in the database: six views in
-the `dashboard` schema plus the dashboard indexes (migration 009), and a page-by-page
-build spec with exact DAX in [docs/powerbi_spec.md](docs/powerbi_spec.md). Step 11's
-nightly automation is built and rehearsed with activation pending (see Automation
-below). The roadmap lives in [CLAUDE.md](CLAUDE.md).
+Five models, walk-forward only (expanding window, ≥3 years of training sessions,
+monthly refits) — no random splits, no tuning; every forecast uses information through
+the previous session. `lgbm_vix` adds lagged ^VIX level/change as exogenous regressors.
 
-## India NSE audit (Step 10)
+<!-- ABLATION:BEGIN -->
+Evaluation set: the per-ticker INTERSECTION of every model's forecast dates — identical for all models by construction: n = 1762 sessions per ticker, 2019-07-15 to 2026-07-17. Realized-variance proxy: Garman-Klass. Lower is better; row-best in bold.
 
-A conditional data-quality gate on the Phase-2 basket (^NSEI, RELIANCE.NS, HDFCBANK.NS,
-INFY.NS, TCS.NS) — **an audit only; nothing here is integrated into the pipeline.** Run
-with `uv run python -m volrisk.audit.nse` (10y daily bars vs the `XNSE` calendar).
-**Audited 2026-07-13** — bar counts below reflect that fetch date and drift with re-runs.
+**QLIKE (primary)**
 
-| ticker | bars | gap rate¹ | special sessions² | zero-volume | close/adj (today) | max raw move | split jumps³ | verdict |
-|---|---|---|---|---|---|---|---|---|
-| ^NSEI | 2,463 | 0.36% | 6 | 1.2% | 1.0000 | 13.9% | 0 | GO |
-| RELIANCE.NS | 2,472 | 0.20% | 11 | 0.2% | 1.0000 | 14.1% | 0 | GO |
-| HDFCBANK.NS | 2,472 | 0.20% | 11 | 0.2% | 1.0000 | 13.5% | 0 | GO |
-| INFY.NS | 2,472 | 0.20% | 11 | 0.2% | 1.0000 | 17.7% | 0 | GO |
-| TCS.NS | 2,472 | 0.20% | 11 | 0.2% | 1.0000 | 9.9% | 0 | GO |
+| ticker | ewma_094 | garch_11 | har_rv | lgbm | lgbm_vix |
+|---|---|---|---|---|---|
+| AAPL | 0.4199 | 0.3945 | **0.3001** | 0.4338 | 0.4075 |
+| JPM | 0.3865 | 0.3312 | **0.2842** | 0.4513 | 0.3907 |
+| MSFT | 0.4060 | 0.3793 | **0.2820** | 0.4102 | 0.3755 |
+| NVDA | 0.4046 | 0.4140 | **0.2846** | 0.3723 | 0.3550 |
+| TSLA | 0.3974 | 0.4524 | **0.2746** | 0.3424 | 0.3393 |
+| XOM | 0.3371 | 0.3295 | **0.2475** | 0.3485 | 0.3328 |
+| ^GSPC | 0.5757 | 0.5057 | **0.3781** | 0.5111 | 0.4493 |
+| **AVERAGE** | 0.4182 | 0.4009 | **0.2930** | 0.4099 | 0.3786 |
 
-¹ calendar sessions with no bar / expected. ² bars on days the calendar marks closed.
-³ single-day raw moves >35% — a nonzero count would flag an *unadjusted* corporate action.
+**RMSE, annualized-vol percentage points (secondary)**
 
-**Adjustment sanity — clean.** Every known corporate action is correctly back-adjusted:
-RELIANCE 1:1 bonus (2017-09), TCS 1:1 (2018-06), INFY 1:1 (2018-09), HDFCBANK 2:1
-face-value split (2019-09) all show a continuous adjusted series, `close/adj_close`
-converges to exactly 1.0000 today, and there are **zero** split-sized raw jumps across
-40 stock-years — so no corporate action was missed. (yfinance's "Close" is itself
-split-adjusted; only dividends separate it from "Adj Close" — the same property the US
-basket already has.)
+| ticker | ewma_094 | garch_11 | har_rv | lgbm | lgbm_vix |
+|---|---|---|---|---|---|
+| AAPL | 14.10 | 12.77 | **9.41** | 10.07 | 9.93 |
+| JPM | 13.82 | 10.57 | **9.14** | 11.07 | 10.82 |
+| MSFT | 13.03 | 11.60 | **8.37** | 9.53 | 9.48 |
+| NVDA | 21.62 | 21.03 | **14.56** | 15.38 | 15.25 |
+| TSLA | 27.09 | 28.58 | **18.50** | 19.36 | 18.94 |
+| XOM | 12.94 | 12.24 | **9.65** | 10.96 | 10.69 |
+| ^GSPC | 10.39 | 8.94 | **5.86** | 6.38 | 6.13 |
+| **AVERAGE** | 16.14 | 15.11 | **10.78** | 11.82 | 11.61 |
 
-**Zero-volume — negligible.** 5 days per equity (0.2%); ^NSEI's 1.2% is index volume,
-which is not a tradability signal and would be reference-data-only anyway (same role as
-^VIX).
+*QLIKE(h, f) = h/f - ln(h/f) - 1 (Patton-class robust loss, normalized to 0 at f = h); dimensionless, lower is better. RMSE is in annualized-volatility percentage points, i.e. rmse(100·sqrt(252·h), 100·sqrt(252·f)). h = realized Garman-Klass variance, f = forecast; both are daily variances in return units.*
+<!-- ABLATION:END -->
 
-**The one real caveat — the calendar, not the prices.** The gap-rate and special-session
-counts are **not** data holes; they are `pandas-market-calendars` `XNSE` disagreeing with
-NSE's actual trading days. The 11 "special sessions" per equity are real NSE sessions the
-calendar omits — **Diwali Muhurat** trading (2021-11-04, 2022-10-24, 2025-10-21, …) and
-special **Budget-day Saturday** sessions (2025-02-01); the 5 "missing" sessions are
-**ad-hoc NSE closures** the calendar didn't know (2024-01-22 Ram Mandir inauguration,
-2024-11-20 Maharashtra elections). The price data tracks real NSE days *more* accurately
-than the calendar. Consequence for integration: Step 5's cleaning excludes non-session
-rows, which would wrongly drop ~11 genuine sessions per NSE ticker — so NSE integration
-is **not** a drop-in. It needs a calendar decision first: augment `XNSE` with the special
-sessions and ad-hoc holidays, or treat the fetched bar dates as authoritative NSE session
-membership.
+**Modeling note (why the regressions fit log variance).** v1 fit the regression models
+on variance *levels*; in calm regimes they emitted a handful of near-zero (HAR: even
+negative, floored) forecasts, and QLIKE — asymmetric by design, punishing variance
+under-forecasts hardest, which is the right asymmetry for risk work — blew up on
+exactly those dates (JPM HAR-RV: 755.6 with them, 0.29 without). v2 therefore fits
+`ln(variance)` and maps back with the lognormal half-variance correction
+`exp(m + s^2/2)` (s^2 = training-residual variance in log space, re-estimated at each
+refit); raw exponentiation would target the conditional *median* and systematically
+under-forecast the mean — the direction QLIKE punishes most. HAR-RV uses Corsi's
+log-log form (ln components as regressors, coefficients are elasticities): a log
+target over *level* features put spike-day component values straight into the
+exponent and produced astronomical over-forecasts — QLIKE's logarithmic over-forecast
+penalty barely moved while RMSE detonated, the exact mirror image of the v1 pathology.
+LightGBM keeps level features (trees split, they don't extrapolate). The 1e-8
+positivity floor remains as a canary only: with log-space fits it should never bind
+(expected floored count: 0).
 
-**Recommendation: GO on data quality, pending your call on calendar handling.** The
-prices, volumes, and adjustments are clean and modelable across all five tickers. The
-only integration cost is the bounded (~0.6% of days) calendar-metadata gap above, with
-two clear fixes. Integration is **not** performed until approved.
+**Proxy robustness** (checked 2026-07-12 on the then-current window). Re-scored against
+the noisier squared-return proxy (kept in the features layer for exactly this check),
+the ranking flips: GARCH leads (average QLIKE 1.54) and HAR-RV's sweep does not persist
+(1.67). The two proxies target different variances — Garman-Klass measures the intraday
+range and excludes the overnight gap, while close-to-close squared returns include it —
+so each model family wins on the target it trains on. The forecast set feeding the VaR
+layer is judged against the VaR-relevant (close-to-close) target, not this table alone.
 
-## Value-at-Risk coverage (Step 9)
+## Results — VaR coverage (Kupiec backtest)
 
-## Value-at-Risk coverage (Step 9)
-
-1-day parametric VaR at 95% and 99% for every forecast model, backtested with the
-Kupiec POF test on the same per-ticker intersection window as the ablation
-(n = 1,756, 2019-07-15 to 2026-07-09).
+1-day parametric VaR at 95% and 99% for every model, backtested on the same per-ticker
+intersection window as the ablation (n and span are stated in the results block, which
+regenerates with the data).
 
 **Method.** VaR_α(d) = z_α · sqrt(var_forecast(d)), assuming a **zero-mean** normal
 1-day return — over one trading day the drift (~1e-4) is negligible next to volatility
 (~1e-2), the standard 1-day parametric-VaR assumption. z₉₅ = 1.645, z₉₉ = 2.326. VaR is
 a positive loss magnitude in log-return units. **Breach convention:** session d breaches
 when the realized close-to-close log return r_d < −VaR_α(d) — the long-position loss
-tail. Under the model P(breach) = 1 − α exactly, so expected breaches are 87.8 at 95%
-and 17.6 at 99%.
+tail. Under the model P(breach) = 1 − α exactly, so expected breaches are 5% and 1% of
+the window (exact counts in the tables).
 
 **Pre-registered predictions** (committed before any results were computed — see git
 history; the results block below was empty in the registering commit):
@@ -109,169 +116,205 @@ variance, and re-runs Kupiec on them.
 **Outcomes vs pre-registered predictions:**
 
 - (i) GK-target models under-cover at 95%: **CONFIRMED** — avg breach rate 9.8% vs 5% nominal, all reject Kupiec.
-- (ii) All base models under-cover at 99%: **CONFIRMED** — every model's avg 99% rate exceeds 1% (least-bad 1.9%); the normal-quantile fat-tail limitation, measured.
+- (ii) All base models under-cover at 99%: **CONFIRMED** — every model's avg 99% rate exceeds 1% (least-bad 1.8%); the normal-quantile fat-tail limitation, measured.
 - (iii) GARCH/EWMA closest to nominal at 95%: **CONFIRMED** — their avg 95% rate 5.3% is 0.3pp off nominal vs 4.8pp for the GK-target models.
 
-Backtest window: per-ticker intersection of every base model's forecast dates, n = 1756 sessions, 2019-07-15 to 2026-07-09. Cells show observed breaches (rate); † = Kupiec rejects correct coverage at 5%.
+Backtest window: per-ticker intersection of every base model's forecast dates, n = 1762 sessions, 2019-07-15 to 2026-07-17. Cells show observed breaches (rate); † = Kupiec rejects correct coverage at 5%.
 
-**95% VaR** — expected 87.8 breaches / 1756 sessions
+**95% VaR** — expected 88.1 breaches / 1762 sessions
 
 | ticker | ewma_094 | garch_11 | har_rv | lgbm | lgbm_vix |
 |---|---|---|---|---|---|
-| AAPL | 88 (5.0%) | 85 (4.8%) | 135 (7.7%) † | 183 (10.4%) † | 174 (9.9%) † |
-| JPM | 100 (5.7%) | 97 (5.5%) | 129 (7.3%) † | 167 (9.5%) † | 153 (8.7%) † |
-| MSFT | 97 (5.5%) | 101 (5.8%) | 151 (8.6%) † | 192 (10.9%) † | 179 (10.2%) † |
-| NVDA | 86 (4.9%) | 78 (4.4%) | 138 (7.9%) † | 194 (11.0%) † | 179 (10.2%) † |
-| TSLA | 89 (5.1%) | 75 (4.3%) | 146 (8.3%) † | 181 (10.3%) † | 178 (10.1%) † |
-| XOM | 100 (5.7%) | 97 (5.5%) | 146 (8.3%) † | 188 (10.7%) † | 190 (10.8%) † |
-| ^GSPC | 108 (6.2%) † | 110 (6.3%) † | 166 (9.5%) † | 232 (13.2%) † | 222 (12.6%) † |
-| **AVERAGE** | 95.4 | 91.9 | 144.4 | 191.0 | 182.1 |
+| AAPL | 88 (5.0%) | 85 (4.8%) | 135 (7.7%) † | 186 (10.6%) † | 176 (10.0%) † |
+| JPM | 100 (5.7%) | 97 (5.5%) | 129 (7.3%) † | 167 (9.5%) † | 156 (8.9%) † |
+| MSFT | 97 (5.5%) | 101 (5.7%) | 151 (8.6%) † | 193 (11.0%) † | 178 (10.1%) † |
+| NVDA | 86 (4.9%) | 78 (4.4%) | 139 (7.9%) † | 192 (10.9%) † | 183 (10.4%) † |
+| TSLA | 89 (5.1%) | 75 (4.3%) | 146 (8.3%) † | 182 (10.3%) † | 179 (10.2%) † |
+| XOM | 100 (5.7%) | 97 (5.5%) | 146 (8.3%) † | 186 (10.6%) † | 190 (10.8%) † |
+| ^GSPC | 108 (6.1%) † | 110 (6.2%) † | 166 (9.4%) † | 233 (13.2%) † | 223 (12.7%) † |
+| **AVERAGE** | 95.4 | 91.9 | 144.6 | 191.3 | 183.6 |
 | **Kupiec rejects (/7)** | 1 | 1 | 7 | 7 | 7 |
 
-**99% VaR** — expected 17.6 breaches / 1756 sessions
+**99% VaR** — expected 17.6 breaches / 1762 sessions
 
 | ticker | ewma_094 | garch_11 | har_rv | lgbm | lgbm_vix |
 |---|---|---|---|---|---|
-| AAPL | 40 (2.3%) † | 31 (1.8%) † | 49 (2.8%) † | 95 (5.4%) † | 95 (5.4%) † |
-| JPM | 44 (2.5%) † | 38 (2.2%) † | 56 (3.2%) † | 88 (5.0%) † | 79 (4.5%) † |
-| MSFT | 33 (1.9%) † | 38 (2.2%) † | 64 (3.6%) † | 100 (5.7%) † | 92 (5.2%) † |
-| NVDA | 23 (1.3%) | 16 (0.9%) | 54 (3.1%) † | 85 (4.8%) † | 73 (4.2%) † |
-| TSLA | 30 (1.7%) † | 29 (1.7%) † | 62 (3.5%) † | 101 (5.8%) † | 91 (5.2%) † |
-| XOM | 37 (2.1%) † | 36 (2.1%) † | 60 (3.4%) † | 90 (5.1%) † | 96 (5.5%) † |
-| ^GSPC | 42 (2.4%) † | 40 (2.3%) † | 76 (4.3%) † | 121 (6.9%) † | 117 (6.7%) † |
-| **AVERAGE** | 35.6 | 32.6 | 60.1 | 97.1 | 91.9 |
+| AAPL | 40 (2.3%) † | 31 (1.8%) † | 49 (2.8%) † | 95 (5.4%) † | 90 (5.1%) † |
+| JPM | 44 (2.5%) † | 38 (2.2%) † | 56 (3.2%) † | 86 (4.9%) † | 76 (4.3%) † |
+| MSFT | 33 (1.9%) † | 38 (2.2%) † | 64 (3.6%) † | 102 (5.8%) † | 94 (5.3%) † |
+| NVDA | 23 (1.3%) | 16 (0.9%) | 54 (3.1%) † | 83 (4.7%) † | 74 (4.2%) † |
+| TSLA | 30 (1.7%) † | 29 (1.6%) † | 62 (3.5%) † | 101 (5.7%) † | 91 (5.2%) † |
+| XOM | 37 (2.1%) † | 36 (2.0%) † | 60 (3.4%) † | 88 (5.0%) † | 96 (5.4%) † |
+| ^GSPC | 42 (2.4%) † | 40 (2.3%) † | 76 (4.3%) † | 121 (6.9%) † | 117 (6.6%) † |
+| **AVERAGE** | 35.6 | 32.6 | 60.1 | 96.6 | 91.1 |
 | **Kupiec rejects (/7)** | 6 | 6 | 7 | 7 | 7 |
 
 **Calibrated GK-target variants** (session-range variance rescaled to close-to-close by the walk-forward, training-only ratio c = mean(r^2)/mean(gk_var)).
 
-*95% VaR — expected 87.8 breaches*
+*95% VaR — expected 88.1 breaches*
 
 | ticker | har_rv_cal | lgbm_cal | lgbm_vix_cal |
 |---|---|---|---|
-| AAPL | 65 (3.7%) † | 105 (6.0%) | 106 (6.0%) |
-| JPM | 73 (4.2%) | 102 (5.8%) | 96 (5.5%) |
-| MSFT | 89 (5.1%) | 125 (7.1%) † | 122 (6.9%) † |
-| NVDA | 70 (4.0%) † | 98 (5.6%) | 92 (5.2%) |
+| AAPL | 65 (3.7%) † | 111 (6.3%) † | 101 (5.7%) |
+| JPM | 73 (4.1%) | 103 (5.8%) | 97 (5.5%) |
+| MSFT | 89 (5.1%) | 123 (7.0%) † | 119 (6.8%) † |
+| NVDA | 70 (4.0%) † | 94 (5.3%) | 88 (5.0%) |
 | TSLA | 81 (4.6%) | 118 (6.7%) † | 112 (6.4%) † |
-| XOM | 96 (5.5%) | 124 (7.1%) † | 122 (6.9%) † |
-| ^GSPC | 78 (4.4%) | 118 (6.7%) † | 116 (6.6%) † |
-| **AVERAGE** | 78.9 | 112.9 | 109.4 |
-| **Kupiec rejects (/7)** | 2 | 4 | 4 |
+| XOM | 96 (5.4%) | 123 (7.0%) † | 125 (7.1%) † |
+| ^GSPC | 78 (4.4%) | 118 (6.7%) † | 117 (6.6%) † |
+| **AVERAGE** | 78.9 | 112.9 | 108.4 |
+| **Kupiec rejects (/7)** | 2 | 5 | 4 |
 
 *99% VaR — expected 17.6 breaches*
 
 | ticker | har_rv_cal | lgbm_cal | lgbm_vix_cal |
 |---|---|---|---|
-| AAPL | 24 (1.4%) | 42 (2.4%) † | 40 (2.3%) † |
-| JPM | 31 (1.8%) † | 47 (2.7%) † | 41 (2.3%) † |
-| MSFT | 31 (1.8%) † | 55 (3.1%) † | 49 (2.8%) † |
-| NVDA | 14 (0.8%) | 30 (1.7%) † | 30 (1.7%) † |
+| AAPL | 24 (1.4%) | 41 (2.3%) † | 43 (2.4%) † |
+| JPM | 31 (1.8%) † | 46 (2.6%) † | 40 (2.3%) † |
+| MSFT | 31 (1.8%) † | 51 (2.9%) † | 48 (2.7%) † |
+| NVDA | 14 (0.8%) | 30 (1.7%) † | 31 (1.8%) † |
 | TSLA | 25 (1.4%) | 40 (2.3%) † | 44 (2.5%) † |
-| XOM | 30 (1.7%) † | 46 (2.6%) † | 58 (3.3%) † |
-| ^GSPC | 29 (1.7%) † | 60 (3.4%) † | 53 (3.0%) † |
-| **AVERAGE** | 26.3 | 45.7 | 45.0 |
+| XOM | 30 (1.7%) † | 49 (2.8%) † | 58 (3.3%) † |
+| ^GSPC | 29 (1.6%) † | 60 (3.4%) † | 53 (3.0%) † |
+| **AVERAGE** | 26.3 | 45.3 | 45.3 |
 | **Kupiec rejects (/7)** | 4 | 7 | 7 |
 <!-- VAR:END -->
 
-**Limitations.** The VaR is parametric-normal, so it structurally cannot capture the
-fat tails and volatility-of-volatility of real equity returns; at 99% especially, the
-normal quantile sits inside the true tail, so under-coverage there is expected by
-construction and is *measured*, not hidden, in the table above. A Student-t innovation
-(heavier tails, one extra degree-of-freedom parameter) is the natural next step and
-remains a documented stretch goal. Kupiec's POF test also has **low power at 99%** with
-n ≈ 1,756 (only ~17.6 expected breaches): a non-rejection there is weak evidence of
-correct coverage, not proof — 99% p-values are read with that caveat.
+The structural residuals these tables measure (fat tails at 99%, Kupiec's power, the
+range-vs-close proxy gap) are consolidated in [Limitations](#limitations).
 
-## Ablation results (v2)
+## What this is
 
-Next-day variance forecasts, walk-forward only — no random splits, no tuning; every
-forecast uses information through the previous session. `lgbm_vix` adds lagged ^VIX
-level/change as exogenous regressors (reference data, per the ^VIX ruling).
+An automated market risk analytics system, built step-by-reviewed-step as a flagship
+portfolio project. Daily OHLCV for 8 US tickers (^GSPC, ^VIX, AAPL, MSFT, NVDA, JPM,
+XOM, TSLA; fixed inception 2016-07-11) flows through a validated PostgreSQL pipeline
+into walk-forward volatility forecasts and coverage-tested VaR. ^VIX is reference data
+only — never modeled as a tradable asset. Design values: idempotent loads (upserts on
+natural keys, re-running any stage adds zero duplicate rows), unit-explicit schemas,
+data-quality **canaries promoted to exit codes**, and results that a stranger can
+regenerate from a fresh clone.
 
-**Modeling note (why the regressions fit log variance).** v1 fit the regression models
-on variance *levels*; in calm regimes they emitted a handful of near-zero (HAR: even
-negative, floored) forecasts, and QLIKE — asymmetric by design, punishing variance
-under-forecasts hardest, which is the right asymmetry for risk work — blew up on
-exactly those dates (JPM HAR-RV: 755.6 with them, 0.29 without). v2 therefore fits
-`ln(variance)` and maps back with the lognormal half-variance correction
-`exp(m + s^2/2)` (s^2 = training-residual variance in log space, re-estimated at each
-refit); raw exponentiation would target the conditional *median* and systematically
-under-forecast the mean — the direction QLIKE punishes most. HAR-RV uses Corsi's
-log-log form (ln components as regressors, coefficients are elasticities): a log
-target over *level* features put spike-day component values straight into the
-exponent and produced astronomical over-forecasts — QLIKE's logarithmic over-forecast
-penalty barely moved while RMSE detonated, the exact mirror image of the v1 pathology.
-LightGBM keeps level features (trees split, they don't extrapolate). The 1e-8
-positivity floor remains as a canary only: with log-space fits it should never bind
-(expected floored count: 0).
+## Architecture
 
-**Proxy robustness.** Re-scored against the noisier squared-return proxy (kept in the
-features layer for exactly this check), the ranking flips: GARCH leads (average QLIKE
-1.54) and HAR-RV's sweep does not persist (1.67). The two proxies target different
-variances — Garman-Klass measures the intraday range and excludes the overnight gap,
-while close-to-close squared returns include it — so each model family wins on the
-target it trains on. The forecast set feeding the VaR layer is chosen against the
-VaR-relevant (close-to-close) target, not this table alone.
+```mermaid
+flowchart LR
+    subgraph providers [Providers]
+        YF[yfinance primary]
+        SQ[Stooq fallback]
+        YF -.->|per-ticker fallback| SQ
+    end
+    LZ[("Landing zone<br/>data/raw parquet<br/>(anchored, monotonic guard)")]
+    VAL{{pandera validation}}
+    RAW[(raw.daily_bars)]
+    CLEAN[("clean.daily_bars<br/>XNYS-aligned, partial bars excluded")]
+    FEAT[("features.daily_features<br/>SQL window functions")]
+    MODELS["models (walk-forward)<br/>EWMA · GARCH · log-log HAR-RV · LightGBM"]
+    FC[(forecasts.daily_variance)]
+    VAR["VaR + Kupiec backtest<br/>(+ calibrated _cal variants)"]
+    COV[(forecasts.var_coverage<br/>+ breaches + ablation)]
+    DASH[("dashboard.* views<br/>(Power BI surface)")]
 
-<!-- ABLATION:BEGIN -->
-Evaluation set: the per-ticker INTERSECTION of every model's forecast dates — identical for all models by construction: n = 1756 sessions per ticker, 2019-07-15 to 2026-07-09. Realized-variance proxy: Garman-Klass. Lower is better; row-best in bold.
+    providers --> LZ --> VAL --> RAW --> CLEAN --> FEAT --> MODELS --> FC --> VAR --> COV
+    FC --> DASH
+    COV --> DASH
+    CLEAN --> DASH
+    FEAT --> DASH
 
-**QLIKE (primary)**
-
-| ticker | ewma_094 | garch_11 | har_rv | lgbm | lgbm_vix |
-|---|---|---|---|---|---|
-| AAPL | 0.4201 | 0.3948 | **0.3006** | 0.4363 | 0.4033 |
-| JPM | 0.3860 | 0.3304 | **0.2826** | 0.4436 | 0.3916 |
-| MSFT | 0.4071 | 0.3805 | **0.2827** | 0.4067 | 0.3795 |
-| NVDA | 0.4055 | 0.4148 | **0.2850** | 0.3758 | 0.3577 |
-| TSLA | 0.3965 | 0.4518 | **0.2746** | 0.3429 | 0.3397 |
-| XOM | 0.3371 | 0.3293 | **0.2477** | 0.3519 | 0.3325 |
-| ^GSPC | 0.5767 | 0.5069 | **0.3791** | 0.5126 | 0.4504 |
-| **AVERAGE** | 0.4184 | 0.4012 | **0.2932** | 0.4100 | 0.3793 |
-
-**RMSE, annualized-vol percentage points (secondary)**
-
-| ticker | ewma_094 | garch_11 | har_rv | lgbm | lgbm_vix |
-|---|---|---|---|---|---|
-| AAPL | 14.10 | 12.78 | **9.42** | 10.09 | 9.90 |
-| JPM | 13.83 | 10.56 | **9.12** | 11.02 | 10.85 |
-| MSFT | 13.05 | 11.62 | **8.38** | 9.50 | 9.49 |
-| NVDA | 21.65 | 21.06 | **14.57** | 15.43 | 15.28 |
-| TSLA | 27.09 | 28.58 | **18.51** | 19.38 | 18.96 |
-| XOM | 12.95 | 12.24 | **9.66** | 11.00 | 10.70 |
-| ^GSPC | 10.40 | 8.95 | **5.87** | 6.39 | 6.13 |
-| **AVERAGE** | 16.15 | 15.11 | **10.79** | 11.83 | 11.62 |
-
-*QLIKE(h, f) = h/f - ln(h/f) - 1 (Patton-class robust loss, normalized to 0 at f = h); dimensionless, lower is better. RMSE is in annualized-volatility percentage points, i.e. rmse(100·sqrt(252·h), 100·sqrt(252·f)). h = realized Garman-Klass variance, f = forecast; both are daily variances in return units.*
-<!-- ABLATION:END -->
-
-## Stack
-
-Python 3.12 managed with [uv](https://docs.astral.sh/uv/) · PostgreSQL 16 · SQLAlchemy 2 +
-psycopg 3 · pandas / numpy · pandera · arch · scikit-learn · LightGBM · pytest · ruff ·
-GitHub Actions · Power BI
-
-## Development setup
-
-```bash
-# prerequisite: uv (https://docs.astral.sh/uv/getting-started/installation/)
-uv sync                    # create .venv and install locked dependencies
-uv run pytest              # run the test suite
-uv run ruff check .        # lint
-uv run ruff format --check .  # formatting check
-uv run pre-commit install  # enable git hooks
-cp .env.example .env       # then fill in local credentials (never committed)
+    NIGHTLY["Nightly job (GitHub Actions cron,<br/>activation pending) — runs the whole<br/>chain; canaries are exit codes"] -.orchestrates.-> LZ
+    CI["CI on every push: ruff lint+format,<br/>118 tests incl. DB integration<br/>against a postgres:16 service"] -.guards.-> RAW
 ```
 
-## Database setup (PostgreSQL 16)
+**Landing-zone semantics.** The database is the system of record; the parquet landing
+zone is deterministic staging reconstructable from the fixed inception anchor (the dev
+machine's copy is the durable replay set). A **monotonic guard** refuses any fetch that
+would *shrink* a ticker's parquet (`--force` only after investigation); guarded tickers
+fall back to a ~5-trading-day trailing-window fetch landed as dated increment files
+under `data/raw/increments/` — the anchored zone is never overwritten. Stooq fallback
+rows are adjusted-only (`close == adj_close` by policy) and flagged via
+`raw.daily_bars.source`.
 
-Everything connects through `DATABASE_URL` in `.env`, so either route below works
-unchanged. Pick one:
+**Repo invariant: the modeling layer never sees an in-progress bar.** A bar reaches
+`clean` — and everything downstream — only after its exchange session has closed. Each
+model also emits one flagged **live next-session forecast row** (`is_live`), surfaced
+for the dashboard and excluded from every evaluation table (no realized outcome exists).
 
-**Route A — native install (used on the primary dev machine).** Install PostgreSQL 16
-via the [EDB Windows installer](https://www.enterprisedb.com/downloads/postgres-postgresql-downloads)
-(or your OS package manager), create a role and databases, and point `DATABASE_URL` at it.
-If another Postgres already owns port 5432, install on 5433 and reflect that in the URL:
+**Canaries.** Telescoping-identity failures, negative Garman–Klass values (provably
+impossible on valid OHLC — a fired canary means bad data leaked past validation),
+floored predictions, and GARCH fallback/unconverged refits are all zero in a healthy
+run and fail the nightly job loudly when they aren't.
+
+## Dashboard (Step 12 — build in progress)
+
+The Power BI *surface* is live in the database: six views in the `dashboard` schema
+(migration 009) so the report re-points from dev Postgres to the cloud by editing two
+Power Query parameters. The page-by-page build spec with exact DAX is
+[docs/powerbi_spec.md](docs/powerbi_spec.md). Provisional model crown: **har_rv_cal
+featured, garch_11 as stated benchmark** — confirmed or flipped on the rendered breach
+page (breach *clustering* is the flip signal; Kupiec tests frequency, not independence).
+
+**The PBIX has not been built yet; no dashboard exists to screenshot.** Placeholders:
+
+<!-- SCREENSHOTS:PENDING — when the PBIX pages render, drop images into docs/img/ and
+     replace the list items below with ![caption](docs/img/<name>.png); keep captions. -->
+- *(screenshot pending)* **Overview** — live next-session VaR per ticker; featured
+  har_rv_cal vs benchmark garch_11; data-freshness cards.
+- *(screenshot pending)* **Forecast vs realized** — annualized vol lines per ticker/model.
+- *(screenshot pending)* **VaR breach tracker** — returns vs −VaR bands with breach
+  markers; cumulative breaches vs expected. The crown page.
+- *(screenshot pending)* **Model ablation** — QLIKE/RMSE matrices.
+- *(screenshot pending)* **Vol regime timeline** — 21-day vol percentile regimes.
+
+## Automation (Step 11)
+
+> **Status: built and rehearsed end to end — activation pending.** The full nightly job
+> ran locally with exit 0, all canaries zero; the scheduled workflow is **deliberately
+> disabled** until the Neon activation checklist (recorded in CLAUDE.md) is executed, so
+> the Nightly badge above reflects a paused schedule, not a failure. No nightly runs
+> are live yet.
+
+<!-- ACTIVATION:PENDING — after the first green scheduled cron run, replace the Status
+     blockquote above with:
+     > **Status: live.** The nightly job has run on schedule since YYYY-MM-DD (first
+     > green cron run: <link to Actions run>); the badge above reflects the latest run.
+     Also update the Dashboard section if Power BI has been re-pointed to Neon. -->
+
+A scheduled GitHub Actions job ([nightly.yml](.github/workflows/nightly.yml)) runs the
+whole pipeline every trading day: migrate → fetch (full anchored backfill via the
+yfinance → Stooq fallback chain) → validate → load → clean → features → all forecasts →
+VaR backtest. One command runs it anywhere: `uv run python -m volrisk.ingest.daily_update`.
+
+**Schedule.** `30 22 * * 1-5` (22:30 UTC, Mon–Fri): NYSE closes 16:00 ET = 20:00 UTC
+(EDT) / 21:00 UTC (EST), so one year-round cron line gives 1.5–2.5 h of slack for
+Yahoo's final daily prints and finishes long before the next open. GitHub auto-disables
+scheduled workflows after ~60 days without repo activity; it emails a warning first and
+the workflow keeps a `workflow_dispatch` trigger for manual runs and re-enabling.
+
+**Target host: Neon serverless Postgres free tier** (verified from
+[neon.com/docs/introduction/plans](https://neon.com/docs/introduction/plans),
+2026-07-17): $0/month — 100 CU-hours/project/month (autoscaling up to 2 CU), 0.5 GB
+storage/project, 5 GB egress/month, scale-to-zero after 5 min. **Known edge:**
+exhausting CU-hours or egress suspends compute until the next billing period; our
+footprint sits at roughly 10% of the allowances, so the cutoff is documented, not
+expected. Local Postgres on port 5433 remains the dev/test DB; the cloud DB is seeded
+by **replaying the pipeline from the anchor**, which doubles as the landing-zone
+replayability proof.
+
+## Setup — from a fresh clone
+
+Prerequisites: [uv](https://docs.astral.sh/uv/getting-started/installation/), git, and
+a PostgreSQL 16 you can create databases on (two routes below). Python itself is
+handled by uv via `.python-version`.
+
+```bash
+git clone https://github.com/aakrisht-26/volatility-risk-engine.git
+cd volatility-risk-engine
+uv sync                       # ~1 min first time: creates .venv from uv.lock
+uv run pre-commit install     # optional: ruff hooks on commit
+cp .env.example .env          # then edit: set DATABASE_URL (see below)
+```
+
+**Postgres route A — native.** Install PostgreSQL 16 (Windows: the EDB installer; if
+another Postgres owns 5432, install on 5433 and use that port in `DATABASE_URL`), then:
 
 ```sql
 CREATE ROLE volrisk LOGIN PASSWORD '...';
@@ -279,89 +322,97 @@ CREATE DATABASE volrisk OWNER volrisk;
 CREATE DATABASE volrisk_test OWNER volrisk;   -- disposable, for integration tests
 ```
 
-**Route B — Docker Compose.**
+**Postgres route B — Docker.** `docker compose up -d` starts postgres:16 with
+credentials from `.env`; `docker compose ps` until healthy.
 
-```bash
-docker compose up -d       # postgres:16 with credentials from .env
-docker compose ps          # wait until healthy
-```
+**Run the pipeline** (times from a mid-range machine; LightGBM stage scales with CPU):
 
-**Then, with either route:**
+| command | does | takes | "good" looks like |
+|---|---|---|---|
+| `uv run python -m volrisk.db.migrate` | apply `db/migrations/*.sql`, tracked | seconds | lists applied versions, then `none (up to date)` on re-run |
+| `uv run python -m volrisk.ingest.backfill` | OHLCV since 2016-07-11 → `data/raw/*.parquet` | ~30 s | per-ticker row counts, "fixed inception" banner, no GUARDED lines |
+| `uv run python -m volrisk.db.load_raw` | upsert parquet → `raw.daily_bars` | ~5 s | re-run prints `net new rows: 0` |
+| `uv run python -m volrisk.transform.cleaning` | calendar-align → `clean.daily_bars` | ~5 s | gap report reconciles (sessions = bars − partials); telescoping `OK` ×8 |
+| `uv run python -m volrisk.features.build` | SQL window functions → `features.daily_features` | ~3 s | `negative_gk` = 0 on every ticker |
+| `uv run python -m volrisk.features.crosscheck` | SQL vs pandas recomputation | ~5 s | `all 14 columns within 1e-12` |
+| `uv run python -m volrisk.models.baselines` | walk-forward EWMA + GARCH | ~30 s | `GARCH convergence: … 0 fallback(s)` |
+| `uv run python -m volrisk.models.feature_models` | walk-forward HAR-RV + LightGBM (+VIX) | 4–13 min | `floored predictions (canary…): 0`; HAR elasticities ≈ 0.2–0.4 |
+| `uv run python -m volrisk.evaluate.ablation --write-readme` | QLIKE/RMSE → DB + README | ~5 s | the ablation tables above |
+| `uv run python -m volrisk.risk.backtest --write-readme` | VaR + Kupiec → DB + README | ~10 s | the coverage tables above, 3× CONFIRMED |
+| `uv run --env-file .env pytest` | full suite incl. DB integration | ~30–60 s | `118 passed` (without `.env`, DB tests skip: `104 passed, 14 skipped`) |
 
-```bash
-uv run python -m volrisk.ingest.backfill        # OHLCV since 2016-07-11 (fixed inception) -> data/raw/*.parquet
-uv run python -m volrisk.db.migrate             # apply db/migrations/*.sql (tracked, idempotent)
-uv run python -m volrisk.db.load_raw            # upsert parquet -> raw.daily_bars (re-run: net 0)
-uv run python -m volrisk.transform.cleaning     # calendar-align -> clean.daily_bars + gap report
-uv run python -m volrisk.features.build         # window functions -> features.daily_features
-uv run python -m volrisk.features.crosscheck    # SQL vs pandas recomputation, per ticker
-uv run python -m volrisk.models.baselines       # walk-forward EWMA + GARCH -> forecasts schema
-uv run python -m volrisk.models.feature_models  # walk-forward HAR-RV + LightGBM (+VIX variant)
-uv run python -m volrisk.evaluate.ablation --write-readme   # QLIKE/RMSE tables -> DB + README
-uv run python -m volrisk.risk.backtest --write-readme       # VaR + Kupiec coverage -> DB + README
-uv run --env-file .env pytest                   # includes DB integration tests
-```
+Or everything at once, exactly as the nightly job runs it:
+`uv run python -m volrisk.ingest.daily_update` → ends `nightly job OK` with all
+canaries zero (~5–15 min, machine-dependent).
 
-(The two `--write-readme` flags regenerate the marked result sections below; omit them
-to store results in Postgres only.)
+## India NSE audit (Step 10 — audited, integration deferred)
 
-Every load stage upserts on the natural key `(ticker, trade_date)`, so re-running any
-stage is idempotent; recent bars are revisable by design (a fetch during market hours
-lands an in-progress bar, which later runs revise to final values and the cleaning
-stage excludes until its session has closed).
+A conditional data-quality gate on the Phase-2 basket (^NSEI, RELIANCE.NS, HDFCBANK.NS,
+INFY.NS, TCS.NS) — **an audit only; nothing is integrated.** Run with
+`uv run python -m volrisk.audit.nse`. **Audited 2026-07-13**; bar counts reflect that
+fetch date.
 
-**Repo invariant: the modeling layer never sees an in-progress bar.** A bar reaches
-`clean` — and everything downstream of it — only after its exchange session has closed.
+| ticker | bars | gap rate¹ | special sessions² | zero-volume | close/adj (today) | split jumps³ | verdict |
+|---|---|---|---|---|---|---|---|
+| ^NSEI | 2,463 | 0.36% | 6 | 1.2% | 1.0000 | 0 | GO |
+| RELIANCE.NS | 2,472 | 0.20% | 11 | 0.2% | 1.0000 | 0 | GO |
+| HDFCBANK.NS | 2,472 | 0.20% | 11 | 0.2% | 1.0000 | 0 | GO |
+| INFY.NS | 2,472 | 0.20% | 11 | 0.2% | 1.0000 | 0 | GO |
+| TCS.NS | 2,472 | 0.20% | 11 | 0.2% | 1.0000 | 0 | GO |
 
-Calendar note: ^VIX is CBOE-listed; the XNYS calendar is used as a proxy for the whole
-US basket. That is a deliberate simplification — its artifacts (e.g. a phantom ^VIX bar
-on a market holiday) are surfaced and excluded by the cleaning stage's gap report.
+¹ calendar sessions with no bar / expected. ² bars on days the calendar marks closed.
+³ single-day raw moves >35% — a nonzero count would flag an *unadjusted* corporate action.
 
-## Automation (Step 11)
+Adjustment is clean (every known bonus/split back-adjusted, zero split-sized jumps
+across 40 stock-years). The one real caveat is **calendar metadata, not prices**: the
+`XNSE` calendar omits real NSE sessions (Diwali Muhurat, Budget Saturdays) and missed
+ad-hoc closures (2024-01-22 Ram Mandir, 2024-11-20 Maharashtra elections) — the price
+data tracks real NSE days *more* accurately than the calendar. Since the cleaning stage
+excludes non-session rows, integration needs a calendar decision first (preferred:
+augment `XNSE`); **GO on data quality, integration deferred.**
 
-> **Status: built and rehearsed end to end — activation pending.** The full nightly job
-> ran locally with exit 0, all canaries zero, in ~5 minutes; the scheduled workflow is
-> **deliberately disabled** until the Neon seed/secret activation checklist (recorded in
-> CLAUDE.md) is executed, so the Nightly badge above reflects a paused schedule, not a
-> failure.
+## Limitations
 
-A scheduled GitHub Actions job ([nightly.yml](.github/workflows/nightly.yml)) runs the
-whole pipeline every trading day against a **Neon serverless Postgres**:
-migrate → fetch (full anchored backfill via a **yfinance → Stooq fallback chain**) →
-validate → load → clean → features → all forecasts → VaR backtest. One command runs it
-anywhere: `uv run python -m volrisk.ingest.daily_update`.
+Honest residuals, each measured or dated rather than asserted:
 
-**Schedule.** `30 22 * * 1-5` (22:30 UTC, Mon–Fri): NYSE closes 16:00 ET = 20:00 UTC
-(EDT) / 21:00 UTC (EST), so one year-round cron line gives 1.5–2.5 h of slack for
-Yahoo's final daily prints and finishes long before the next open. GitHub auto-disables
-scheduled workflows after ~60 days without repo activity; it emails a warning first,
-the workflow keeps a `workflow_dispatch` trigger for manual runs/re-enabling, and the
-repo stays active through the roadmap.
+1. **Normal quantiles cannot reach real tails — measured.** Every model under-covers at
+   99%: the best base model (garch_11) breaches 1.85% of sessions vs 1% nominal, and
+   even the best calibrated model (har_rv_cal) 1.49% — Kupiec still rejects 6/7 and 4/7
+   tickers respectively. Calibration fixes the *variance level*, not the *tail shape*.
+   Student-t innovations are the documented stretch fix.
+2. **Kupiec's POF test has low power at 99%** with n ≈ 1,760 (~17.6 expected breaches):
+   non-rejection there is weak evidence, not proof. Kupiec also tests *frequency* only —
+   the **Christoffersen independence test** (breach clustering) is a recorded stretch item.
+3. **Range vs close-to-close variance are different targets.** Garman–Klass measures the
+   intraday session range and omits the overnight gap; model rankings flip with the
+   evaluation proxy (see Proxy robustness above). This gap is why the `_cal` calibration
+   layer exists at all.
+4. **The calibration factor is largest for the index — observed.** Measured 2026-07-20
+   as avg(`har_rv_cal`)/avg(`har_rv`) variance over all settled rows: **^GSPC 2.045×**
+   vs 1.51–1.77× for the single names (AAPL 1.77, NVDA 1.73, TSLA 1.71, JPM 1.64,
+   MSFT 1.61, XOM 1.51). The likely mechanism — stated as a hypothesis, not proven —
+   is that an index's high/low understates true dispersion because constituents don't
+   hit their extremes simultaneously, so range-based estimators under-measure *index*
+   variance most.
+5. **XNYS is a proxy calendar for ^VIX** (CBOE-listed) — a deliberate simplification
+   whose artifacts (e.g. a phantom ^VIX bar on Memorial Day 2026) are surfaced and
+   excluded by the gap report, not silently absorbed.
+6. **yfinance's "Close" is already split-adjusted** (only dividends separate it from
+   "Adj Close"); Stooq fallback rows are fully adjusted-only (`close == adj_close`),
+   flagged via `raw.daily_bars.source`.
+7. **US-only scope.** The NSE basket passed its data-quality audit (2026-07-13) and is
+   deferred pending calendar handling — see the audit section.
+8. **Monthly refit cadence.** Model parameters update at calendar-month boundaries, not
+   daily; within a month, a regime break is absorbed only through the variance recursion
+   or features, not re-estimated parameters.
+9. **No transaction costs, liquidity, or portfolio effects.** VaR is computed for a unit
+   long position per name; there is no portfolio aggregation, netting, or cost model.
 
-**Canaries are exit codes.** Telescoping-identity failures, negative Garman–Klass
-values, floored predictions, and GARCH fallback/unconverged refits each fail the job
-after the summary prints — every data-quality invariant is re-proven nightly.
+## Stack
 
-**Landing-zone semantics.** The cloud DB is the **system of record**. A runner's
-parquet is deterministic staging, reconstructable from the fixed inception anchor; the
-dev machine's `data/raw/` is the durable replay copy. A **monotonic guard** refuses any
-fetch that would *shrink* a ticker's parquet (`--force` only after investigation);
-guarded tickers fall back to a ~5-trading-day trailing-window fetch landed as dated
-increment files under `data/raw/increments/` — the anchored zone is never overwritten.
-Stooq fallback rows are adjusted-only (`close == adj_close` by policy) and flagged via
-`raw.daily_bars.source`.
+Python 3.12 managed with [uv](https://docs.astral.sh/uv/) · PostgreSQL 16 · SQLAlchemy 2 +
+psycopg 3 · pandas / numpy · pandera · arch · scikit-learn · LightGBM ·
+pandas-market-calendars · pytest · ruff · GitHub Actions · Power BI (build in progress)
 
-**Neon free tier** (verified from [neon.com/docs/introduction/plans](https://neon.com/docs/introduction/plans),
-2026-07-17): $0/month — 100 CU-hours/project/month of compute (autoscaling up to 2 CU),
-0.5 GB storage/project, 5 GB egress/month, scale-to-zero after 5 min (not disableable
-on Free). **Known edge:** exhausting CU-hours or egress **suspends compute until the
-next billing period** (or upgrade), and exceeding the storage cap blocks
-storage-increasing writes. Our footprint — ~10 min of ≤2 CU compute/night ≈ a few
-CU-hours/month and ~0.1 GB of data — sits at roughly 10% of the allowances, so the
-cutoff is documented, not expected.
-
-**Two databases.** Neon is production (the nightly job and Power BI read/write it);
-local Postgres on port 5433 remains the dev/test DB. The cloud DB is seeded by
-**replaying the pipeline from the anchor** (run `daily_update` once locally with
-`DATABASE_URL` pointed at Neon) — which doubles as the landing-zone replayability
-proof.
+Roadmap, working agreements, and every recorded decision: [CLAUDE.md](CLAUDE.md).
+Dashboard build spec: [docs/powerbi_spec.md](docs/powerbi_spec.md).
