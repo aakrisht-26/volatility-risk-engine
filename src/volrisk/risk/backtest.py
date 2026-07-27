@@ -282,12 +282,52 @@ def compute_backtest(engine: Engine) -> tuple[pd.DataFrame, pd.DataFrame, bool]:
     # Same variance forecasts, fat-tailed quantile. df is re-estimated by MLE
     # on standardized residuals at each monthly boundary using training data
     # only, so no threshold sees the return it is tested against.
+    df_diagnostics: list[dict] = []
     for (ticker, model), (ret, variance) in list(variance_series.items()):
-        df_series = walk_forward_t_df(ret, variance)
-        rows, frames = _collect(ticker, model + T_SUFFIX, ret, variance, df_series=df_series)
+        est = walk_forward_t_df(ret, variance)
+        rows, frames = _collect(ticker, model + T_SUFFIX, ret, variance, df_series=est.df_series)
         cov_rows += rows
         breach_frames += frames
+        df_diagnostics.append(
+            {
+                "ticker": ticker,
+                "model": model + T_SUFFIX,
+                "refits": est.n_refits,
+                "interior": est.n_interior,
+                "clamped_high": est.n_clamped_high,
+                "clamped_low": est.n_clamped_low,
+                "insufficient": est.n_insufficient,
+                "clamp_rate": est.clamp_rate,
+                "interior_median_df": est.interior_median,
+            }
+        )
     coverage = pd.DataFrame(cov_rows)
+    coverage.attrs["df_diagnostics"] = pd.DataFrame(df_diagnostics)
+
+    # Live rows for the t variants. A t variant shares its base model's VARIANCE
+    # forecast exactly — only the quantile differs — so the live row is a re-tag,
+    # which is what lets the dashboard's Overview card filter on the featured
+    # model tag (har_rv_cal_t) rather than approximating it with its base.
+    live_base = pd.read_sql_query(
+        text(
+            "SELECT ticker, trade_date, model, var_forecast"
+            " FROM forecasts.daily_variance WHERE is_live"
+        ),
+        engine,
+    )
+    for row in live_base.itertuples():
+        if row.model.endswith(T_SUFFIX):
+            continue
+        upsert_variance_forecasts(
+            engine,
+            forecasts_frame(
+                row.ticker,
+                pd.Series([row.var_forecast], index=[row.trade_date]),
+                row.model + T_SUFFIX,
+            ),
+            context=f"{row.ticker}:{row.model}{T_SUFFIX}:live",
+            is_live=True,
+        )
 
     breaches = pd.concat(breach_frames, ignore_index=True) if breach_frames else pd.DataFrame()
     return coverage, breaches, calibrated
@@ -610,6 +650,21 @@ def main() -> None:
         raise SystemExit("no forecasts found to backtest")
     n_cov, n_br = store_var_results(engine, coverage, breaches)
     logger.info("stored %d coverage rows, %d breach events", n_cov, n_br)
+
+    # df-clamp canary (Stretch-2 addendum): a HIGH clamp means the MLE ran to
+    # the Gaussian boundary, so the t variant did nothing there; a LOW clamp
+    # means it wanted df <= 2, where the variance-matched quantile collapses.
+    diag = coverage.attrs.get("df_diagnostics")
+    if diag is not None and not diag.empty:
+        est = int((diag["refits"] - diag["insufficient"]).sum())
+        high, low = int(diag["clamped_high"].sum()), int(diag["clamped_low"].sum())
+        print("\n=== Student-t df estimation ===")
+        print(diag.to_string(index=False))
+        print(
+            f"\ndf clamps (canary): {high} high + {low} low of {est} estimated refits "
+            f"({(high + low) / est * 100:.1f}%); interior median df "
+            f"{diag['interior_median_df'].median():.2f}"
+        )
 
     report = render_report(coverage, calibrated)
     independence = render_independence_report(coverage, calibrated)

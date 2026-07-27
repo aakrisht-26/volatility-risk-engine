@@ -67,6 +67,11 @@ logger = logging.getLogger(__name__)
 
 #: Recorded minimum contract: ~5 trading days re-fetched on the fallback path.
 TRAILING_SESSIONS = 5
+
+#: Share of Student-t refits allowed to clamp at the Gaussian boundary before
+#: the canary fires. A few are legitimate (calm windows really are Gaussian);
+#: a flood means the t variants are adding nothing and should be reconsidered.
+T_DF_HIGH_CLAMP_LIMIT = 0.10
 INCREMENTS_DIR = DEFAULT_OUT_DIR / "increments"
 
 
@@ -203,12 +208,28 @@ def main() -> None:
     store_var_results(engine, coverage, breaches)
     timings["evaluate"] = time.perf_counter() - timings["evaluate"]
 
+    # Student-t df estimation diagnostics (Stretch-2 addendum). A LOW rejection
+    # is a failed fit already handled by fallback but still actionable, so it is
+    # a zero-tolerance canary like the GARCH fallbacks. HIGH clamps are a
+    # legitimate outcome (Gaussian residuals => the t IS the normal), so they
+    # are rate-limited rather than zero-tolerance: a flood means the t layer is
+    # doing no work and the variants should be reconsidered.
+    df_diag = coverage.attrs.get("df_diagnostics")
+    t_low = int(df_diag["clamped_low"].sum()) if df_diag is not None else 0
+    t_high = int(df_diag["clamped_high"].sum()) if df_diag is not None else 0
+    t_estimated = (
+        int((df_diag["refits"] - df_diag["insufficient"]).sum()) if df_diag is not None else 0
+    )
+    high_rate = t_high / t_estimated if t_estimated else 0.0
+
     canaries = {
         "telescoping_failures": len(telescope_failed),
         "negative_gk": int(negative_gk),
         "garch_fallback_refits": int(base["fallbacks"].sum()),
         "garch_unconverged_consumed": int(base["unconverged"].sum()),
         "floored_predictions": int(feat_models["floored"].sum()),
+        "t_df_rejected_low": t_low,
+        "t_df_high_clamp_rate_excess": int(high_rate > T_DF_HIGH_CLAMP_LIMIT),
     }
 
     print("\n=== Nightly job summary ===")
@@ -221,6 +242,10 @@ def main() -> None:
         f" + {feat_models['rows'].sum()} feature-model"
     )
     print(f"ablation rows: {len(metrics)} | coverage rows: {len(coverage)}")
+    print(
+        f"t df: {t_high} high clamps + {t_low} low rejections of {t_estimated} "
+        f"estimated refits ({high_rate * 100:.1f}% high)"
+    )
     print("timings (s): " + ", ".join(f"{k}={v:.1f}" for k, v in timings.items()))
     if fetch_summary["guarded"].any():
         print(

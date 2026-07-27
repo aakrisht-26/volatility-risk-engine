@@ -69,24 +69,66 @@ def test_mle_recovers_known_degrees_of_freedom() -> None:
     rng = np.random.default_rng(11)
     z = rng.standard_t(5, 20_000)
 
-    assert fit_t_df(z) == pytest.approx(5.0, rel=0.15)
+    fit = fit_t_df(z)
+
+    assert fit.df == pytest.approx(5.0, rel=0.15)
+    assert fit.status == "interior"
 
 
-def test_gaussian_data_pushes_df_to_the_upper_bound() -> None:
+def test_gaussian_data_clamps_high_and_says_so() -> None:
+    """The failure mode the addendum exposed: Gaussian residuals send the MLE
+    to the boundary, where the t variant is just the normal one again."""
     rng = np.random.default_rng(3)
 
-    assert fit_t_df(rng.normal(size=20_000)) > 20  # no fat tails to find
+    fit = fit_t_df(rng.normal(size=20_000))
+
+    assert fit.status == "clamped_high"
+    assert fit.df == MAX_DF
+    assert fit.raw_df >= MAX_DF  # the raw estimate is retained for the report
 
 
 def test_too_few_observations_falls_back_to_normal_equivalent() -> None:
-    assert fit_t_df(np.array([0.1, -0.2, 0.3])) == MAX_DF
+    fit = fit_t_df(np.array([0.1, -0.2, 0.3]))
+
+    assert fit.df == MAX_DF
+    assert fit.status == "insufficient_data"
 
 
-def test_extremely_fat_data_is_clamped_above_two() -> None:
+def test_extremely_fat_data_clamps_low_and_says_so() -> None:
     rng = np.random.default_rng(5)
     z = rng.standard_t(1.2, 5_000)  # df < 2: no finite variance
 
-    assert fit_t_df(z) >= MIN_DF
+    fit = fit_t_df(z)
+
+    assert fit.status == "clamped_low"
+    assert fit.df == MIN_DF
+    assert fit.raw_df < MIN_DF
+
+
+def test_a_low_clamp_is_rejected_not_consumed() -> None:
+    """The Step-7 remedy applied here: a df <= 2 fit is a FAILED fit, so the
+    walk-forward must keep the previous month's df rather than emit a VaR
+    smaller than the Gaussian one."""
+    n = 300
+    idx = sessions(n)
+    rng = np.random.default_rng(2)
+    variance = pd.Series(np.full(n, 4e-4), index=idx)
+    z = rng.standard_t(6, n)
+    z[200:] = rng.standard_t(1.1, n - 200) * 8  # force an infinite-variance window
+    returns = pd.Series(z * 0.02, index=idx)
+
+    est = walk_forward_t_df(returns, variance, min_train=100)
+
+    assert est.n_clamped_low > 0  # the failure happened and was counted
+    assert (est.df_series > MIN_DF).all()  # but no month ever used the collapsed df
+
+
+def test_low_clamp_collapses_the_quantile_below_the_normal() -> None:
+    """Why a low clamp is dangerous rather than merely inelegant: holding the
+    variance fixed as df approaches 2 drives the multiplier toward zero, so the
+    'fat-tailed' VaR ends up far SMALLER than the Gaussian one."""
+    assert t_quantile_scaled(MIN_DF, 0.99) < Z_SCORE[99] / 2
+    assert t_quantile_scaled(MIN_DF, 0.95) < Z_SCORE[95] / 3
 
 
 # --- walk-forward estimation ---
@@ -99,12 +141,18 @@ def test_walk_forward_df_is_a_monthly_step_function_without_lookahead() -> None:
     variance = pd.Series(np.full(n, 4e-4), index=idx)
     returns = pd.Series(rng.standard_t(4, n) * 0.02 / np.sqrt(2.0), index=idx)
 
-    df_series = walk_forward_t_df(returns, variance, min_train=100)
+    est = walk_forward_t_df(returns, variance, min_train=100)
+    df_series = est.df_series
 
     by_month = pd.Series(df_series.values, index=[(d.year, d.month) for d in df_series.index])
     assert (by_month.groupby(level=0).nunique() == 1).all()  # constant within a month
     assert (df_series.iloc[:100] == MAX_DF).all()  # no estimate before min_train
     assert df_series.iloc[-1] < MAX_DF  # a real fit happened later
+    # Diagnostics accompany the series so clamping can never pass unnoticed.
+    assert est.n_refits == est.n_interior + est.n_clamped_high + est.n_clamped_low + (
+        est.n_insufficient
+    )
+    assert 0.0 <= est.clamp_rate <= 1.0
 
 
 def test_thresholds_scale_with_sigma_and_use_per_date_df() -> None:

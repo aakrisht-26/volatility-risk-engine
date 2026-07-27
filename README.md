@@ -239,6 +239,25 @@ Cells show **n_11 / p-value**: n_11 is the count of breaches immediately followi
 | **LR_cc rejects (/7)** | 6 | 6 | 7 | 7 | 7 | 4 | 7 | 7 |
 <!-- INDEPENDENCE:END -->
 
+### The model crown — settled
+
+**Featured model: `har_rv_cal_t`. Stated benchmark: `garch_11`.** (Ruled 2026-07-22,
+after both stretch results separated the two dimensions cleanly.)
+
+On **coverage** — the primary VaR criterion, because coverage is what the risk number
+claims to deliver — `har_rv_cal_t` is the best-calibrated model in the project: **95%
+breach rate 4.94%** (2/7 tickers reject Kupiec) and **99% 1.26%** (**1/7**, down from
+4/7 under the normal quantile). On **independence**, `garch_11` wins outright — **0/7
+rejections at both levels** against har_rv_cal's 2/7 — and that is a real advantage, not
+a rounding error: breaches arriving in bursts are worse than breaches arriving evenly,
+because losses compound faster than capital replenishes. The genuine clustering is
+concentrated in **JPM and XOM**.
+
+The honest framing, and the one the dashboard states wherever the crown appears:
+**`har_rv_cal_t` for accuracy of the risk level, `garch_11` for timing behaviour** — a
+production desk would plausibly run both. `garch_11`'s independence advantage must be
+stated on every page where the crown is stated.
+
 **This measurement falsified the plan it was built to serve.** The model crown was
 originally to be settled by *eyeballing breach clustering* on the dashboard's VaR page.
 That procedure is underdetermined, for two reasons this test exposed. First, roughly
@@ -300,13 +319,32 @@ uses the whole likelihood and its failure mode is a detectable boundary hit.
   reported **beside mean breach counts**, so "genuinely more independent" can be
   distinguished from "too few events left to detect dependence in".
 
+**Methodology note — a reviewer prediction that was wrong, and why the sequencing
+matters.** Prediction (ii) above was the project reviewer's, and it was **incorrect**:
+the expectation was that a variance-matched t would push 95% coverage toward
+*over*-coverage. The opposite happened. Holding the variance fixed while fattening the
+tails necessarily **thins the shoulder quantile** — the multiplier is 1.561 at df = 5
+against the normal's 1.645 — so 95% breaches *increase*. That mechanism was derived and
+**registered in the same commit as the prediction, before any variant was computed**;
+that sequencing is the only reason the falsification is credible rather than a
+convenient after-the-fact story. One consequence was benign and worth naming: `har_rv_cal`
+had been *over*-covering at 95% (4.48% against 5% nominal), so the thinner shoulder
+quantile moved it to **4.94%** — nearer nominal. The wrong prediction identified a real
+effect; it just had the sign of the benefit backwards.
+
+A second methodological point, in the same spirit: prediction (iv) was *technically*
+confirmed (11/56 → 10/56 independence rejections at 99%) and is **not claimed as
+support**, because the power caveat registered beside it explains it away — mean 99%
+breaches fall 54.1 → 42.7, so a one-rejection move against a 21% fall in events cannot
+distinguish "more independent" from "fewer events in which to detect dependence".
+
 <!-- STUDENTT:BEGIN -->
 **Outcomes vs pre-registered predictions:**
 
 - (i) 99% under-coverage narrows materially: **CONFIRMED** — average 99% breach rate 3.07% (normal) -> 2.42% (t) against 1% nominal; Kupiec rejections 51/56 -> 42/56.
 - (ii) 95% coverage degrades toward over-coverage: **NOT confirmed** — average 95% breach rate 7.14% (normal) -> 7.93% (t); Kupiec rejections 34/56 -> 41/56.
 - (iii) estimated df lands in 3-8: **CONFIRMED** — median df 6.42, range 3.50-9.82, 89% of (ticker, model) series inside 3-8.
-- (iv) fewer independence rejections at 99% under t: **CONFIRMED** — 11/56 (normal) -> 10/56 (t). Read with the power caveat registered alongside it: mean 99% breaches fall 54.1 -> 42.7, so part of any drop is fewer events to detect dependence in, not more independence.
+- (iv) fewer independence rejections at 99% under t: **CONFIRMED** — 11/56 (normal) -> 10/56 (t). Read with the power caveat registered alongside it: mean 99% breaches fall 54.1 -> 42.6, so part of any drop is fewer events to detect dependence in, not more independence.
 
 Same variance forecasts, different quantile: a Student-t scaled so its variance equals the model's forecast, with degrees of freedom estimated by MLE on standardized residuals at each monthly refit (training data only). Nominal breach rates are 5% and 1%.
 
@@ -315,7 +353,7 @@ Same variance forecasts, different quantile: a Student-t scaled so its variance 
 | model | normal rate | t rate | normal Kupiec rejects | t Kupiec rejects | median df |
 |---|---|---|---|---|---|
 | ewma_094 | 5.42% | 6.09% | 1/7 | 3/7 | 5.80 |
-| garch_11 | 5.21% | 6.00% | 1/7 | 3/7 | 7.21 |
+| garch_11 | 5.21% | 5.94% | 1/7 | 3/7 | 7.21 |
 | har_rv | 8.20% | 8.72% | 7/7 | 7/7 | 8.00 |
 | lgbm | 10.86% | 11.87% | 7/7 | 7/7 | 5.91 |
 | lgbm_vix | 10.42% | 11.55% | 7/7 | 7/7 | 6.25 |
@@ -328,7 +366,7 @@ Same variance forecasts, different quantile: a Student-t scaled so its variance 
 | model | normal rate | t rate | normal Kupiec rejects | t Kupiec rejects | median df |
 |---|---|---|---|---|---|
 | ewma_094 | 2.02% | 1.52% | 6/7 | 5/7 | 5.80 |
-| garch_11 | 1.85% | 1.45% | 6/7 | 3/7 | 7.21 |
+| garch_11 | 1.85% | 1.44% | 6/7 | 3/7 | 7.21 |
 | har_rv | 3.41% | 2.71% | 7/7 | 7/7 | 8.00 |
 | lgbm | 5.48% | 4.38% | 7/7 | 7/7 | 5.91 |
 | lgbm_vix | 5.17% | 4.16% | 7/7 | 7/7 | 6.25 |
@@ -336,6 +374,36 @@ Same variance forecasts, different quantile: a Student-t scaled so its variance 
 | lgbm_cal | 2.57% | 1.92% | 7/7 | 6/7 | 5.75 |
 | lgbm_vix_cal | 2.57% | 1.98% | 7/7 | 6/7 | 6.08 |
 <!-- STUDENTT:END -->
+
+**Degrees-of-freedom estimation is not uniformly successful — the clamp rate, stated.**
+Reporting a median df alone would hide the refits where the MLE did not converge to an
+interior estimate. Across the full walk-forward (56 series × 85 monthly refits, 4,424
+after warm-up), **21 refits (0.47%) clamped at the Gaussian upper bound** and **3 (0.07%)
+were rejected at the lower bound**; the remaining 99.5% are interior estimates with a
+**median df of 6.34**. Two honest readings follow:
+
+- A high clamp means the MLE ran to `df → ∞` (raw estimates reached 10¹²) because that
+  training window's standardized residuals were indistinguishable from Gaussian. For
+  those months **the t variant simply is the normal one** — it adds nothing, and saying
+  "fat tails were estimated" would be false for them.
+- **Every one of the 24 clamps falls in Jan–Jun 2020**, the first months of the
+  walk-forward, when only ~120–230 standardized residuals existed. This is a
+  **small-sample identification failure, not a market-regime effect**: after mid-2020
+  (n > ~250) there is not a single clamp in six further years. The high clamps
+  concentrate in MSFT (17 of 21) — the calmest name in the basket — and in the HAR
+  variants; all three low rejections are TSLA GARCH during the COVID crash, where a
+  short sample containing extreme moves pushed the MLE below df = 2.
+
+**Clamp bounds, assessed.** The upper bound (100) is defensible: at df = 100 the
+variance-matched quantile is within 0.6% of the normal z, so clamping there is
+numerically indistinguishable from the honest answer ("this window is Gaussian"). The
+lower bound (2.05) is **not** defensible as a value to *use*: below df = 2 a t has no
+finite variance, and as df → 2⁺ the variance-matched multiplier **collapses** — at
+df = 2.05 the 99% multiplier is **1.05 against the normal's 2.33**, so a "fat-tailed"
+VaR would come out less than half the Gaussian one. A low estimate is therefore treated
+as a **failed fit and rejected**, falling back to the last good df (the same remedy the
+GARCH convergence policy uses), and counted as a zero-tolerance canary; the bound now
+only ever marks the rejection, never supplies a threshold.
 
 The structural residuals these tables measure (fat tails at 99%, Kupiec's power, the
 range-vs-close proxy gap) are consolidated in [Limitations](#limitations).
