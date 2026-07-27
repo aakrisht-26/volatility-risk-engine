@@ -203,10 +203,10 @@ computed — the results block below was empty in the registering commit):
 **Outcomes vs pre-registered predictions:**
 
 - (i) GARCH-family models pass independence more often: **CONFIRMED** — ewma_094 + garch_11 reject 1/28 tests, the GK-target models 16/42.
-- (ii) Failures concentrate at 95%: **CONFIRMED** — 16 rejections at 95% vs 11 at 99% (directional, not overwhelming).
-- (iii) The 99% test is underpowered: **supported** — median n_11 at 99% is 2, so most series carry almost no information about clustering; non-rejection there is not evidence of independence.
+- (ii) Failures concentrate at 95%: **CONFIRMED** — 27 rejections at 95% vs 21 at 99% (directional, not overwhelming).
+- (iii) The 99% test is underpowered: **supported** — median n_11 at 99% is 1, so most series carry almost no information about clustering; non-rejection there is not evidence of independence.
 
-**Surprise worth stating:** only **14 of 27** rejections are clustering (pi_11 > pi_01). The other **13** are *anti*-clustering — breaches spaced too regularly to be independent. Rejection is therefore not a synonym for clustering, and an eyeball of the breach chart would likely not flag the anti-clustered cases at all.
+**Surprise worth stating:** only **27 of 48** rejections are clustering (pi_11 > pi_01). The other **21** are *anti*-clustering — breaches spaced too regularly to be independent. Rejection is therefore not a synonym for clustering, and an eyeball of the breach chart would likely not flag the anti-clustered cases at all.
 
 Cells show **n_11 / p-value**: n_11 is the count of breaches immediately following a breach (the clustering signal), p is Christoffersen's LR_ind (chi-square(1), H0 = independence). ‡ = independence rejected at 5%. The last row counts rejections of the joint conditional-coverage test LR_cc = LR_uc + LR_ind (chi-square(2)).
 
@@ -301,6 +301,40 @@ uses the whole likelihood and its failure mode is a detectable boundary hit.
   distinguished from "too few events left to detect dependence in".
 
 <!-- STUDENTT:BEGIN -->
+**Outcomes vs pre-registered predictions:**
+
+- (i) 99% under-coverage narrows materially: **CONFIRMED** — average 99% breach rate 3.07% (normal) -> 2.42% (t) against 1% nominal; Kupiec rejections 51/56 -> 42/56.
+- (ii) 95% coverage degrades toward over-coverage: **NOT confirmed** — average 95% breach rate 7.14% (normal) -> 7.93% (t); Kupiec rejections 34/56 -> 41/56.
+- (iii) estimated df lands in 3-8: **CONFIRMED** — median df 6.42, range 3.50-9.82, 89% of (ticker, model) series inside 3-8.
+- (iv) fewer independence rejections at 99% under t: **CONFIRMED** — 11/56 (normal) -> 10/56 (t). Read with the power caveat registered alongside it: mean 99% breaches fall 54.1 -> 42.7, so part of any drop is fewer events to detect dependence in, not more independence.
+
+Same variance forecasts, different quantile: a Student-t scaled so its variance equals the model's forecast, with degrees of freedom estimated by MLE on standardized residuals at each monthly refit (training data only). Nominal breach rates are 5% and 1%.
+
+**95% VaR — normal vs Student-t**
+
+| model | normal rate | t rate | normal Kupiec rejects | t Kupiec rejects | median df |
+|---|---|---|---|---|---|
+| ewma_094 | 5.42% | 6.09% | 1/7 | 3/7 | 5.80 |
+| garch_11 | 5.21% | 6.00% | 1/7 | 3/7 | 7.21 |
+| har_rv | 8.20% | 8.72% | 7/7 | 7/7 | 8.00 |
+| lgbm | 10.86% | 11.87% | 7/7 | 7/7 | 5.91 |
+| lgbm_vix | 10.42% | 11.55% | 7/7 | 7/7 | 6.25 |
+| har_rv_cal | 4.48% | 4.94% | 2/7 | 2/7 | 7.37 |
+| lgbm_cal | 6.41% | 7.28% | 5/7 | 6/7 | 5.75 |
+| lgbm_vix_cal | 6.15% | 7.03% | 4/7 | 6/7 | 6.08 |
+
+**99% VaR — normal vs Student-t**
+
+| model | normal rate | t rate | normal Kupiec rejects | t Kupiec rejects | median df |
+|---|---|---|---|---|---|
+| ewma_094 | 2.02% | 1.52% | 6/7 | 5/7 | 5.80 |
+| garch_11 | 1.85% | 1.45% | 6/7 | 3/7 | 7.21 |
+| har_rv | 3.41% | 2.71% | 7/7 | 7/7 | 8.00 |
+| lgbm | 5.48% | 4.38% | 7/7 | 7/7 | 5.91 |
+| lgbm_vix | 5.17% | 4.16% | 7/7 | 7/7 | 6.25 |
+| har_rv_cal | 1.49% | 1.26% | 4/7 | 1/7 | 7.37 |
+| lgbm_cal | 2.57% | 1.92% | 7/7 | 6/7 | 5.75 |
+| lgbm_vix_cal | 2.57% | 1.98% | 7/7 | 6/7 | 6.08 |
 <!-- STUDENTT:END -->
 
 The structural residuals these tables measure (fat tails at 99%, Kupiec's power, the
@@ -498,11 +532,18 @@ augment `XNSE`); **GO on data quality, integration deferred.**
 
 Honest residuals, each measured or dated rather than asserted:
 
-1. **Normal quantiles cannot reach real tails — measured.** Every model under-covers at
-   99%: the best base model (garch_11) breaches 1.85% of sessions vs 1% nominal, and
-   even the best calibrated model (har_rv_cal) 1.49% — Kupiec still rejects 6/7 and 4/7
-   tickers respectively. Calibration fixes the *variance level*, not the *tail shape*.
-   Student-t innovations are the documented stretch fix.
+1. **Normal quantiles cannot reach real tails — measured, and now partly fixed.** Under
+   the normal quantile every model under-covers at 99%: the best base model (garch_11)
+   breaches **1.85%** of sessions vs 1% nominal and the best calibrated one
+   (har_rv_cal) **1.49%**, with Kupiec rejecting 6/7 and 4/7 tickers. Calibration fixes
+   the *variance level*, not the *tail shape*. Replacing only the quantile with a
+   variance-matched **Student-t** (df ≈ 6–7, MLE, walk-forward) closes much of the gap:
+   garch_11 **1.85% → 1.45%** (6/7 → 3/7 rejections) and har_rv_cal **1.49% → 1.26%**
+   (4/7 → **1/7**). The residual is not eliminated — a symmetric t still misses left-tail
+   asymmetry, and skewed-t or EVT tails are the next step, unbuilt.
+   **The trade is real and measured:** the same construction moves mass off the
+   shoulders, so 95% coverage *worsens* (7.14% → 7.93% average breach rate). Neither
+   distribution dominates at both levels.
 2. **Kupiec's POF test has low power at 99%** with n ≈ 1,760 (~17.6 expected breaches):
    non-rejection there is weak evidence, not proof. Kupiec also tests *frequency* only;
    the **Christoffersen independence test is now implemented** (see above) and inherits

@@ -509,21 +509,21 @@ def _student_t_verdicts(coverage: pd.DataFrame, models: list[str]) -> list[str]:
         "",
         f"- (i) 99% under-coverage narrows materially: "
         f"**{'CONFIRMED' if narrowed else 'NOT confirmed'}** — average 99% breach rate "
-        f"{n99['rate'] * 100:.2f}% (normal) → {t99['rate'] * 100:.2f}% (t) against 1% "
-        f"nominal; Kupiec rejections {n99['kupiec_rej']}/{n99['n']} → "
+        f"{n99['rate'] * 100:.2f}% (normal) -> {t99['rate'] * 100:.2f}% (t) against 1% "
+        f"nominal; Kupiec rejections {n99['kupiec_rej']}/{n99['n']} -> "
         f"{t99['kupiec_rej']}/{t99['n']}.",
         f"- (ii) 95% coverage degrades toward over-coverage: "
         f"**{'CONFIRMED' if toward_over else 'NOT confirmed'}** — average 95% breach rate "
-        f"{n95['rate'] * 100:.2f}% (normal) → {t95['rate'] * 100:.2f}% (t); Kupiec "
-        f"rejections {n95['kupiec_rej']}/{n95['n']} → {t95['kupiec_rej']}/{t95['n']}.",
+        f"{n95['rate'] * 100:.2f}% (normal) -> {t95['rate'] * 100:.2f}% (t); Kupiec "
+        f"rejections {n95['kupiec_rej']}/{n95['n']} -> {t95['kupiec_rej']}/{t95['n']}.",
         f"- (iii) estimated df lands in 3-8: "
         f"**{'CONFIRMED' if in_range >= 0.5 else 'NOT confirmed'}** — median df "
         f"{df_med:.2f}, range {df_lo:.2f}-{df_hi:.2f}, {in_range * 100:.0f}% of "
         f"(ticker, model) series inside 3-8.",
         f"- (iv) fewer independence rejections at 99% under t: "
         f"**{'CONFIRMED' if fewer_ind else 'NOT confirmed'}** — {n99['ind_rej']}/{n99['n']} "
-        f"(normal) → {t99['ind_rej']}/{t99['n']} (t). Read with the power caveat "
-        f"registered alongside it: mean 99% breaches fall {n99['breaches']:.1f} → "
+        f"(normal) -> {t99['ind_rej']}/{t99['n']} (t). Read with the power caveat "
+        f"registered alongside it: mean 99% breaches fall {n99['breaches']:.1f} -> "
         f"{t99['breaches']:.1f}, so part of any drop is fewer events to detect "
         f"dependence in, not more independence.",
         "",
@@ -532,16 +532,17 @@ def _student_t_verdicts(coverage: pd.DataFrame, models: list[str]) -> list[str]:
 
 def _t_comparison_table(coverage: pd.DataFrame, level: int, models: list[str]) -> str:
     """Normal vs t, side by side: breach rate and Kupiec verdict per model."""
-    sub = coverage[coverage["level"] == level].set_index(["model", "ticker"])
+    sub = coverage[coverage["level"] == level]
+    present = set(sub["model"])
     lines = [
         "| model | normal rate | t rate | normal Kupiec rejects | t Kupiec rejects | median df |",
         "|---|---|---|---|---|---|",
     ]
     for m in models:
-        if (m, slice(None)) not in sub.index and m not in sub.index.get_level_values(0):
+        if m not in present or m + T_SUFFIX not in present:
             continue
-        norm = sub.loc[m]
-        tvar = sub.loc[m + T_SUFFIX]
+        norm = sub[sub["model"] == m]
+        tvar = sub[sub["model"] == m + T_SUFFIX]
         lines.append(
             f"| {m} | {norm['breach_rate'].mean() * 100:.2f}% | "
             f"{tvar['breach_rate'].mean() * 100:.2f}% | "
