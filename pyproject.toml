@@ -27,6 +27,17 @@ dependencies = [
     "yfinance>=1.5.1",
 ]
 
+[project.optional-dependencies]
+# Experiment tracking is deliberately OPTIONAL: the pipeline must run, and the
+# nightly job must succeed, without it. Install with `uv sync --extra tracking`.
+#
+# mlflow-skinny, not mlflow: the full server package pins pandas<3 and would
+# force this project off pandas 3 (the standing pandas<3 tripwire). The skinny
+# client carries no such pin, writes the same local file store, and is all the
+# logging path needs. The UI is launched from an isolated tool environment
+# (`uvx mlflow ui`), so the server's pins never touch this project.
+tracking = ["mlflow-skinny>=3.0", "alembic>=1.13"]
+
 [project.urls]
 Repository = "https://github.com/aakrisht-26/volatility-risk-engine"
 Issues = "https://github.com/aakrisht-26/volatility-risk-engine/issues"

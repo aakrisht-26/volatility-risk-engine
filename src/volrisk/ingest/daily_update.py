@@ -60,6 +60,7 @@ from volrisk.providers.base import FallbackProvider
 from volrisk.providers.stooq_provider import StooqProvider
 from volrisk.providers.yfinance_provider import YFinanceProvider
 from volrisk.risk.backtest import compute_backtest
+from volrisk.tracking import log_evaluation, run_params
 from volrisk.transform.cleaning import TELESCOPE_TOLERANCE, run_cleaning
 from volrisk.transform.returns import telescoping_check
 
@@ -208,6 +209,12 @@ def main() -> None:
     store_var_results(engine, coverage, breaches)
     timings["evaluate"] = time.perf_counter() - timings["evaluate"]
 
+    # Optional experiment tracking. No-ops when MLflow is absent or disabled,
+    # and swallows its own errors: observability must never fail a risk run.
+    stage("tracking")
+    mlflow_run = log_evaluation(metrics, coverage, params=run_params(metrics))
+    timings["tracking"] = time.perf_counter() - timings["tracking"]
+
     # Student-t df estimation diagnostics (Stretch-2 addendum). A LOW rejection
     # is a failed fit already handled by fallback but still actionable, so it is
     # a zero-tolerance canary like the GARCH fallbacks. HIGH clamps are a
@@ -246,6 +253,7 @@ def main() -> None:
         f"t df: {t_high} high clamps + {t_low} low rejections of {t_estimated} "
         f"estimated refits ({high_rate * 100:.1f}% high)"
     )
+    print(f"mlflow run: {mlflow_run or 'not logged (MLflow absent or disabled)'}")
     print("timings (s): " + ", ".join(f"{k}={v:.1f}" for k, v in timings.items()))
     if fetch_summary["guarded"].any():
         print(

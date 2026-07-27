@@ -405,6 +405,15 @@ as a **failed fit and rejected**, falling back to the last good df (the same rem
 GARCH convergence policy uses), and counted as a zero-tolerance canary; the bound now
 only ever marks the rejection, never supplies a threshold.
 
+*Considered and declined:* raising the minimum fit sample from 100 to ~250 observations
+would drive the clamp count to zero, since every clamp is a small-sample artefact. It is
+**deliberately not done**. A measured, diagnosed, handled failure is a stronger artefact
+than a silently avoided one; the change would push the first ~12 months of the
+walk-forward onto the normal quantile, trading one honest limitation for another while
+invalidating published numbers; and 100 observations is a defensible minimum for a
+two-parameter fit in general. The finding *is* that degrees of freedom are hard to
+identify from short samples — which is worth stating rather than engineering around.
+
 The structural residuals these tables measure (fat tails at 99%, Kupiec's power, the
 range-vs-close proxy gap) are consolidated in [Limitations](#limitations).
 
@@ -524,6 +533,42 @@ expected. Local Postgres on port 5433 remains the dev/test DB; the cloud DB is s
 by **replaying the pipeline from the anchor**, which doubles as the landing-zone
 replayability proof.
 
+## Experiment tracking (optional)
+
+Every walk-forward evaluation can be logged to a local MLflow store: per-(ticker, model)
+QLIKE and RMSE, coverage/Kupiec/independence statistics, aggregate averages per model,
+the run's configuration, and the ablation and coverage tables as artifacts (~900 metrics
+per run).
+
+```bash
+uv sync --extra tracking                      # installs mlflow-skinny (client only)
+uv run python -m volrisk.tracking             # log the evaluation currently in Postgres
+uvx mlflow ui --backend-store-uri sqlite:///mlflow.db     # open the UI at :5000
+```
+
+The nightly job logs a run automatically when the extra is installed.
+
+**Deliberately optional and unable to break the pipeline.** MLflow is never a hard
+runtime dependency: with it absent, disabled (`VOLRISK_DISABLE_MLFLOW=1`), or failing
+mid-call, every entry point degrades to a no-op with a warning — observability must not
+fail a risk run. The full test suite passes identically with and without it, and both
+paths are covered by tests (including a simulated `ImportError` and a simulated
+tracking-store failure).
+
+Two implementation notes worth stating rather than hiding:
+
+- The extra installs **`mlflow-skinny`**, not `mlflow`. The full package pins `pandas<3`
+  and would drag this project off pandas 3 — the standing dependency tripwire. The
+  skinny client carries no such pin and is all the logging path needs; the **UI** is run
+  from an isolated tool environment (`uvx`), so the server's pins never touch the
+  project.
+- The store is **SQLite** (`mlflow.db`) rather than MLflow's plain-directory file store,
+  which as of MLflow 3.14 is in maintenance mode and raises unless explicitly opted into.
+  SQLite is still a single local file with no server. Both `mlflow.db` and `mlruns/` are
+  gitignored and regenerable from Postgres.
+- Cost: ~8 s per run against a 5–15 minute nightly job (under 2%), and it cannot extend
+  the job on failure because failures return immediately.
+
 ## Setup — from a fresh clone
 
 Prerequisites: [uv](https://docs.astral.sh/uv/getting-started/installation/), git, and
@@ -564,7 +609,8 @@ credentials from `.env`; `docker compose ps` until healthy.
 | `uv run python -m volrisk.models.feature_models` | walk-forward HAR-RV + LightGBM (+VIX) | 4–13 min | `floored predictions (canary…): 0`; HAR elasticities ≈ 0.2–0.4 |
 | `uv run python -m volrisk.evaluate.ablation --write-readme` | QLIKE/RMSE → DB + README | ~5 s | the ablation tables above |
 | `uv run python -m volrisk.risk.backtest --write-readme` | VaR + Kupiec → DB + README | ~10 s | the coverage tables above, 3× CONFIRMED |
-| `uv run --env-file .env pytest` | full suite incl. DB integration | ~30–60 s | `118 passed` (without `.env`, DB tests skip: `104 passed, 14 skipped`) |
+| `uv run python -m volrisk.tracking` | log the evaluation to MLflow (optional extra) | ~8 s | `logged MLflow run: <id>` |
+| `uv run --env-file .env pytest` | full suite incl. DB integration | ~40–60 s | `147 passed` (without `.env`, DB tests skip) |
 
 Or everything at once, exactly as the nightly job runs it:
 `uv run python -m volrisk.ingest.daily_update` → ends `nightly job OK` with all
