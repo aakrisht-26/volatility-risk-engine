@@ -259,6 +259,50 @@ It is not decisive on its own: the joint LR_cc test splits by level (garch_11 0/
 har_rv_cal 3/7 at 95%, but 6/7 vs 4/7 at 99%, where har_rv_cal's much better breach
 *rate* dominates). Labelling is unchanged and the crown stays provisional.
 
+### Student-t VaR (fat-tailed quantiles)
+
+The normal-quantile VaR under-covers at 99% for every model, and the diagnosed cause is
+distributional rather than a variance error. These variants keep each model's variance
+forecast **unchanged** and replace only the quantile with a Student-t scaled so its
+variance still equals that forecast — so the comparison isolates tail shape. Degrees of
+freedom are estimated by **MLE on standardized residuals** (location fixed at 0),
+re-estimated at each monthly refit on training data only, exactly like the variance
+calibration factors.
+
+*Why MLE and not moment-matching on kurtosis:* `df = 4 + 6/excess-kurtosis` is a
+fourth-moment statistic, so on precisely the fat-tailed data being modelled it is
+dominated by a handful of observations and has enormous sampling variance. Worse, for
+df ≤ 4 the population kurtosis does not exist while the sample version still returns a
+finite number — moment matching fails silently exactly where fat tails matter most. MLE
+uses the whole likelihood and its failure mode is a detectable boundary hit.
+
+**Pre-registered predictions** (Aakrisht's, committed before the variants were computed
+— the results block below was empty in the registering commit):
+
+1. **(i)** The 99% under-coverage **narrows materially**, since fat tails were the
+   diagnosed cause.
+2. **(ii)** 95% coverage **degrades slightly toward over-coverage**.
+3. **(iii)** Estimated df lands roughly in the **3–8** range for daily equity returns.
+4. **(iv)** The t variants show **fewer independence rejections at 99%** than their
+   normal counterparts, because part of what currently reads as dependence is really
+   repeated tail misses from a mis-specified distribution rather than genuine
+   volatility clustering.
+
+**Two mechanical caveats registered alongside them, before computing:**
+
+- On **(ii)**: a variance-matched t moves mass from the shoulders to the tails, so its
+  95% multiplier is *smaller* than the normal z (e.g. 1.561 at df = 5 vs 1.645). That
+  produces **more** breaches at 95%, i.e. movement toward *under*-coverage — the
+  opposite direction to the prediction. If (ii) is falsified, this is expected to be
+  why, and it is a property of the construction rather than of the data.
+- On **(iv)**: a wider 99% threshold mechanically produces fewer breaches, and fewer
+  breaches mean less power to reject independence. Rejection counts are therefore
+  reported **beside mean breach counts**, so "genuinely more independent" can be
+  distinguished from "too few events left to detect dependence in".
+
+<!-- STUDENTT:BEGIN -->
+<!-- STUDENTT:END -->
+
 The structural residuals these tables measure (fat tails at 99%, Kupiec's power, the
 range-vs-close proxy gap) are consolidated in [Limitations](#limitations).
 
