@@ -239,16 +239,25 @@ Cells show **n_11 / p-value**: n_11 is the count of breaches immediately followi
 | **LR_cc rejects (/7)** | 6 | 6 | 7 | 7 | 7 | 4 | 7 | 7 |
 <!-- INDEPENDENCE:END -->
 
-**Crown impact — evidence, not a verdict.** This is the statistic behind the flip
-condition set for the provisional crown (har_rv_cal featured, garch_11 benchmark). It
-points toward garch_11: **garch_11 never rejects independence** (0/14 ticker×level
-tests) while har_rv_cal rejects 4/14, three of which are genuine clustering (JPM at
-both levels, XOM at 99%). But two qualifications matter before anyone treats that as
-decisive — the joint LR_cc test splits (garch_11 0/7 vs har_rv_cal 3/7 at 95%, but
-6/7 vs 4/7 at 99%, where har_rv_cal's much better breach *rate* dominates), and the
-clustering is **ticker-specific**: JPM and XOM show it, AAPL/MSFT/NVDA/^GSPC do not.
-The labelling stays as-is; the crown remains provisional pending the rendered breach
-page.
+**This measurement falsified the plan it was built to serve.** The model crown was
+originally to be settled by *eyeballing breach clustering* on the dashboard's VaR page.
+That procedure is underdetermined, for two reasons this test exposed. First, roughly
+half the independence rejections are **anti**-clustering: independence implies random
+arrival, so breaches spaced too regularly reject exactly as bunched ones do — but only
+bunching is a risk failure, and an eyeball would read over-regular spacing as healthy.
+Second, the genuine clustering is **ticker-specific** — JPM and XOM show it,
+AAPL/MSFT/NVDA/^GSPC do not — so no single rendered ticker could have settled the
+question; whichever one happened to be on screen would have decided it. The crown
+procedure was accordingly revised (see [CLAUDE.md](CLAUDE.md)) to rest on the stored
+direction-split statistics, Kupiec coverage, and capital cost, with the rendered page
+as illustration rather than evidence.
+
+**Crown impact — evidence, not a verdict.** The statistic points toward garch_11:
+**garch_11 never rejects independence** (0/14 ticker×level tests) while har_rv_cal
+rejects 4/14, three of which are genuine clustering (JPM at both levels, XOM at 99%).
+It is not decisive on its own: the joint LR_cc test splits by level (garch_11 0/7 vs
+har_rv_cal 3/7 at 95%, but 6/7 vs 4/7 at 99%, where har_rv_cal's much better breach
+*rate* dominates). Labelling is unchanged and the crown stays provisional.
 
 The structural residuals these tables measure (fat tails at 99%, Kupiec's power, the
 range-vs-close proxy gap) are consolidated in [Limitations](#limitations).
