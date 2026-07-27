@@ -180,6 +180,28 @@ Backtest window: per-ticker intersection of every base model's forecast dates, n
 | **Kupiec rejects (/7)** | 4 | 7 | 7 |
 <!-- VAR:END -->
 
+### Independence of breaches (Christoffersen)
+
+Kupiec tests whether breaches happen at the **right rate**; it is blind to *when*.
+Eighty-eight breaches spread evenly and eighty-eight all inside one crisis month score
+identically. Christoffersen's LR_ind fits a first-order Markov chain to the breach
+series and asks whether a breach today is more likely **given a breach yesterday**
+(H0: independence, χ²(1)); LR_cc = LR_uc + LR_ind tests rate and clustering jointly
+(χ²(2)). Same models, same n = 1,762 intersection window.
+
+**Pre-registered predictions** (Aakrisht's, committed before the statistics were
+computed — the results block below was empty in the registering commit):
+
+1. **(i)** GARCH-family models pass independence **more often** than the GK-target
+   models, since a conditional-variance recursion adapts within crisis windows.
+2. **(ii)** Failures concentrate at **95%**, where breach counts are large enough for
+   the test to have power.
+3. **(iii)** At **99%** the low counts leave the test underpowered — a non-rejection
+   there is not evidence of independence.
+
+<!-- INDEPENDENCE:BEGIN -->
+<!-- INDEPENDENCE:END -->
+
 The structural residuals these tables measure (fat tails at 99%, Kupiec's power, the
 range-vs-close proxy gap) are consolidated in [Limitations](#limitations).
 

@@ -31,6 +31,7 @@ from sqlalchemy import Engine, text
 from volrisk.db.engine import get_engine
 from volrisk.db.loaders import store_var_results, upsert_variance_forecasts
 from volrisk.models.baselines import forecasts_frame
+from volrisk.risk.christoffersen import christoffersen_independence, conditional_coverage
 from volrisk.risk.kupiec import kupiec_pof
 from volrisk.risk.var import LEVELS, TAIL_PROB, breach_mask, var_threshold
 
@@ -47,6 +48,8 @@ CALIBRATION_TRIGGER_RATE = 0.06
 
 README_BEGIN = "<!-- VAR:BEGIN -->"
 README_END = "<!-- VAR:END -->"
+IND_BEGIN = "<!-- INDEPENDENCE:BEGIN -->"
+IND_END = "<!-- INDEPENDENCE:END -->"
 
 
 def load_forecasts_and_returns(engine: Engine) -> pd.DataFrame:
@@ -84,6 +87,11 @@ def evaluate_coverage(
     mask = breach_mask(r, thr)
     x, n = int(mask.sum()), len(r)
     k = kupiec_pof(n, x, TAIL_PROB[level])
+    # Christoffersen on the SAME ordered breach series: rate (Kupiec) and
+    # clustering (independence) are complementary, so they are reported side
+    # by side, and LR_cc joins them.
+    ind = christoffersen_independence(mask)
+    lr_cc, p_cc = conditional_coverage(k.lr_stat, ind.lr_ind)
     summary = {
         "level": level,
         "n_obs": n,
@@ -92,6 +100,14 @@ def evaluate_coverage(
         "breach_rate": x / n,
         "kupiec_lr": k.lr_stat,
         "kupiec_p": k.p_value,
+        "n_00": ind.n_00,
+        "n_01": ind.n_01,
+        "n_10": ind.n_10,
+        "n_11": ind.n_11,
+        "lr_ind": ind.lr_ind,
+        "p_ind": ind.p_ind,
+        "lr_cc": lr_cc,
+        "p_cc": p_cc,
         "eval_start": returns.index[0],
         "eval_end": returns.index[-1],
     }
@@ -328,15 +344,67 @@ def render_report(coverage: pd.DataFrame, calibrated: bool) -> str:
     return "\n".join(parts)
 
 
-def write_readme_section(markdown: str, readme_path: Path = Path("README.md")) -> None:
-    content = readme_path.read_text(encoding="utf-8")
-    if README_BEGIN not in content or README_END not in content:
-        raise SystemExit(f"README markers {README_BEGIN} / {README_END} not found")
-    head, rest = content.split(README_BEGIN, 1)
-    _, tail = rest.split(README_END, 1)
-    readme_path.write_text(
-        f"{head}{README_BEGIN}\n{markdown}\n{README_END}{tail}", encoding="utf-8"
+def _independence_table(coverage: pd.DataFrame, level: int, models: list[str]) -> str:
+    """Per-ticker n_11 (breach-after-breach) and the independence p-value."""
+    sub = coverage[coverage["level"] == level]
+    present = [m for m in models if m in set(sub["model"])]
+    n11 = sub.pivot(index="ticker", columns="model", values="n_11")[present]
+    pind = sub.pivot(index="ticker", columns="model", values="p_ind")[present]
+
+    lines = ["| ticker | " + " | ".join(present) + " |", "|---" * (len(present) + 1) + "|"]
+    for ticker in n11.index:
+        cells = []
+        for m in present:
+            mark = " ‡" if pind.loc[ticker, m] < 0.05 else ""
+            cells.append(f"{int(n11.loc[ticker, m])} / p={pind.loc[ticker, m]:.3f}{mark}")
+        lines.append(f"| {ticker} | " + " | ".join(cells) + " |")
+    rejects = " | ".join(str(int((pind[m] < 0.05).sum())) for m in present)
+    lines.append(f"| **Independence rejects (/{len(n11)})** | " + rejects + " |")
+    cc_rejects = " | ".join(
+        str(int((sub[sub["model"] == m]["p_cc"] < 0.05).sum())) for m in present
     )
+    lines.append(f"| **LR_cc rejects (/{len(n11)})** | " + cc_rejects + " |")
+    return "\n".join(lines)
+
+
+def render_independence_report(coverage: pd.DataFrame, calibrated: bool) -> str:
+    """Christoffersen independence + conditional-coverage tables."""
+    models = list(BASE_MODEL_ORDER) + (
+        [m + CAL_SUFFIX for m in GK_TARGET_MODELS] if calibrated else []
+    )
+    parts = [
+        "Cells show **n_11 / p-value**: n_11 is the count of breaches immediately "
+        "following a breach (the clustering signal), p is Christoffersen's LR_ind "
+        "(chi-square(1), H0 = independence). ‡ = independence rejected at 5%. The last "
+        "row counts rejections of the joint conditional-coverage test "
+        "LR_cc = LR_uc + LR_ind (chi-square(2)).",
+        "",
+        "**95% VaR — independence**",
+        "",
+        _independence_table(coverage, 95, models),
+        "",
+        "**99% VaR — independence**",
+        "",
+        _independence_table(coverage, 99, models),
+    ]
+    return "\n".join(parts)
+
+
+def _replace_block(markdown: str, begin: str, end: str, readme_path: Path) -> None:
+    content = readme_path.read_text(encoding="utf-8")
+    if begin not in content or end not in content:
+        raise SystemExit(f"README markers {begin} / {end} not found")
+    head, rest = content.split(begin, 1)
+    _, tail = rest.split(end, 1)
+    readme_path.write_text(f"{head}{begin}\n{markdown}\n{end}{tail}", encoding="utf-8")
+
+
+def write_readme_section(markdown: str, readme_path: Path = Path("README.md")) -> None:
+    _replace_block(markdown, README_BEGIN, README_END, readme_path)
+
+
+def write_independence_section(markdown: str, readme_path: Path = Path("README.md")) -> None:
+    _replace_block(markdown, IND_BEGIN, IND_END, readme_path)
 
 
 def main() -> None:
@@ -355,11 +423,15 @@ def main() -> None:
     logger.info("stored %d coverage rows, %d breach events", n_cov, n_br)
 
     report = render_report(coverage, calibrated)
+    independence = render_independence_report(coverage, calibrated)
     print()
     print(report)
+    print()
+    print(independence)
     if args.write_readme:
         write_readme_section(report)
-        print("\nREADME VaR section updated.")
+        write_independence_section(independence)
+        print("\nREADME VaR + independence sections updated.")
 
 
 if __name__ == "__main__":
