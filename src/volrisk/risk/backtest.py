@@ -367,12 +367,63 @@ def _independence_table(coverage: pd.DataFrame, level: int, models: list[str]) -
     return "\n".join(lines)
 
 
+def _clusters(row: pd.Series) -> bool:
+    """True when a rejection is CLUSTERING (pi_11 > pi_01) rather than the
+    opposite — breaches spaced too regularly also reject independence."""
+    denom_0, denom_1 = row["n_00"] + row["n_01"], row["n_10"] + row["n_11"]
+    if not denom_0 or not denom_1:
+        return False
+    return (row["n_11"] / denom_1) > (row["n_01"] / denom_0)
+
+
+def _independence_verdicts(coverage: pd.DataFrame) -> list[str]:
+    """Outcomes vs the pre-registered predictions, computed from the results."""
+    garch_family = ("ewma_094", "garch_11")
+    gk_base = GK_TARGET_MODELS
+    rejected = coverage[coverage["p_ind"] < 0.05]
+
+    def rate(models: tuple[str, ...]) -> tuple[int, int]:
+        sub = coverage[coverage["model"].isin(models)]
+        return int((sub["p_ind"] < 0.05).sum()), len(sub)
+
+    g_rej, g_n = rate(garch_family)
+    k_rej, k_n = rate(gk_base)
+    at95 = int((rejected["level"] == 95).sum())
+    at99 = int((rejected["level"] == 99).sum())
+    clustering = int(rejected.apply(_clusters, axis=1).sum()) if not rejected.empty else 0
+    anti = len(rejected) - clustering
+    n11_99 = coverage[coverage["level"] == 99]["n_11"].median()
+
+    return [
+        "**Outcomes vs pre-registered predictions:**",
+        "",
+        f"- (i) GARCH-family models pass independence more often: "
+        f"**{'CONFIRMED' if g_rej / g_n < k_rej / k_n else 'not confirmed'}** — "
+        f"ewma_094 + garch_11 reject {g_rej}/{g_n} tests, the GK-target models "
+        f"{k_rej}/{k_n}.",
+        f"- (ii) Failures concentrate at 95%: "
+        f"**{'CONFIRMED' if at95 > at99 else 'not confirmed'}** — {at95} rejections at "
+        f"95% vs {at99} at 99% (directional, not overwhelming).",
+        f"- (iii) The 99% test is underpowered: **supported** — median n_11 at 99% is "
+        f"{n11_99:.0f}, so most series carry almost no information about clustering; "
+        f"non-rejection there is not evidence of independence.",
+        "",
+        f"**Surprise worth stating:** only **{clustering} of {len(rejected)}** rejections "
+        f"are clustering (pi_11 > pi_01). The other **{anti}** are *anti*-clustering — "
+        f"breaches spaced too regularly to be independent. Rejection is therefore not a "
+        f"synonym for clustering, and an eyeball of the breach chart would likely not "
+        f"flag the anti-clustered cases at all.",
+        "",
+    ]
+
+
 def render_independence_report(coverage: pd.DataFrame, calibrated: bool) -> str:
     """Christoffersen independence + conditional-coverage tables."""
     models = list(BASE_MODEL_ORDER) + (
         [m + CAL_SUFFIX for m in GK_TARGET_MODELS] if calibrated else []
     )
     parts = [
+        *_independence_verdicts(coverage),
         "Cells show **n_11 / p-value**: n_11 is the count of breaches immediately "
         "following a breach (the clustering signal), p is Christoffersen's LR_ind "
         "(chi-square(1), H0 = independence). ‡ = independence rejected at 5%. The last "

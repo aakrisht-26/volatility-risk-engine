@@ -200,7 +200,55 @@ computed — the results block below was empty in the registering commit):
    there is not evidence of independence.
 
 <!-- INDEPENDENCE:BEGIN -->
+**Outcomes vs pre-registered predictions:**
+
+- (i) GARCH-family models pass independence more often: **CONFIRMED** — ewma_094 + garch_11 reject 1/28 tests, the GK-target models 16/42.
+- (ii) Failures concentrate at 95%: **CONFIRMED** — 16 rejections at 95% vs 11 at 99% (directional, not overwhelming).
+- (iii) The 99% test is underpowered: **supported** — median n_11 at 99% is 2, so most series carry almost no information about clustering; non-rejection there is not evidence of independence.
+
+**Surprise worth stating:** only **14 of 27** rejections are clustering (pi_11 > pi_01). The other **13** are *anti*-clustering — breaches spaced too regularly to be independent. Rejection is therefore not a synonym for clustering, and an eyeball of the breach chart would likely not flag the anti-clustered cases at all.
+
+Cells show **n_11 / p-value**: n_11 is the count of breaches immediately following a breach (the clustering signal), p is Christoffersen's LR_ind (chi-square(1), H0 = independence). ‡ = independence rejected at 5%. The last row counts rejections of the joint conditional-coverage test LR_cc = LR_uc + LR_ind (chi-square(2)).
+
+**95% VaR — independence**
+
+| ticker | ewma_094 | garch_11 | har_rv | lgbm | lgbm_vix | har_rv_cal | lgbm_cal | lgbm_vix_cal |
+|---|---|---|---|---|---|---|---|---|
+| AAPL | 6 / p=0.444 | 2 / p=0.230 | 11 / p=0.828 | 24 / p=0.285 | 16 / p=0.670 | 1 / p=0.292 | 6 / p=0.681 | 6 / p=0.928 |
+| JPM | 10 / p=0.079 | 8 / p=0.253 | 17 / p=0.015 ‡ | 26 / p=0.009 ‡ | 25 / p=0.002 ‡ | 8 / p=0.012 ‡ | 13 / p=0.008 ‡ | 14 / p=0.001 ‡ |
+| MSFT | 5 / p=0.874 | 2 / p=0.056 | 9 / p=0.208 | 22 / p=0.837 | 15 / p=0.422 | 2 / p=0.168 | 6 / p=0.318 | 8 / p=0.987 |
+| NVDA | 6 / p=0.383 | 3 / p=0.794 | 9 / p=0.507 | 12 / p=0.019 ‡ | 11 / p=0.028 ‡ | 3 / p=0.893 | 3 / p=0.307 | 1 / p=0.043 ‡ |
+| TSLA | 1 / p=0.039 ‡ | 1 / p=0.138 | 5 / p=0.013 ‡ | 11 / p=0.032 ‡ | 5 / p=0.000 ‡ | 0 / p=0.005 ‡ | 2 / p=0.008 ‡ | 2 / p=0.017 ‡ |
+| XOM | 9 / p=0.169 | 5 / p=0.874 | 13 / p=0.781 | 24 / p=0.285 | 26 / p=0.187 | 9 / p=0.110 | 14 / p=0.065 | 13 / p=0.159 |
+| ^GSPC | 7 / p=0.877 | 7 / p=0.958 | 14 / p=0.641 | 35 / p=0.378 | 25 / p=0.496 | 6 / p=0.191 | 12 / p=0.143 | 8 / p=0.910 |
+| **Independence rejects (/7)** | 1 | 0 | 2 | 3 | 3 | 2 | 2 | 3 |
+| **LR_cc rejects (/7)** | 0 | 0 | 7 | 7 | 7 | 3 | 5 | 5 |
+
+**99% VaR — independence**
+
+| ticker | ewma_094 | garch_11 | har_rv | lgbm | lgbm_vix | har_rv_cal | lgbm_cal | lgbm_vix_cal |
+|---|---|---|---|---|---|---|---|---|
+| AAPL | 2 / p=0.309 | 0 / p=0.292 | 1 / p=0.737 | 4 / p=0.586 | 4 / p=0.764 | 1 / p=0.335 | 1 / p=0.962 | 2 / p=0.396 |
+| JPM | 3 / p=0.122 | 2 / p=0.257 | 6 / p=0.009 ‡ | 10 / p=0.010 ‡ | 11 / p=0.000 ‡ | 4 / p=0.002 ‡ | 6 / p=0.001 ‡ | 3 / p=0.073 |
+| MSFT | 0 / p=0.262 | 1 / p=0.844 | 1 / p=0.312 | 5 / p=0.685 | 3 / p=0.307 | 0 / p=0.292 | 1 / p=0.669 | 1 / p=0.773 |
+| NVDA | 0 / p=0.435 | 0 / p=0.588 | 2 / p=0.789 | 2 / p=0.267 | 1 / p=0.150 | 0 / p=0.636 | 0 / p=0.308 | 0 / p=0.292 |
+| TSLA | 0 / p=0.308 | 0 / p=0.324 | 0 / p=0.033 ‡ | 1 / p=0.010 ‡ | 0 / p=0.002 ‡ | 0 / p=0.396 | 0 / p=0.173 | 0 / p=0.133 |
+| XOM | 1 / p=0.805 | 1 / p=0.765 | 7 / p=0.004 ‡ | 9 / p=0.040 ‡ | 7 / p=0.435 | 4 / p=0.001 ‡ | 4 / p=0.056 | 3 / p=0.449 |
+| ^GSPC | 2 / p=0.366 | 1 / p=0.923 | 4 / p=0.687 | 12 / p=0.194 | 8 / p=0.931 | 2 / p=0.091 | 2 / p=0.974 | 4 / p=0.096 |
+| **Independence rejects (/7)** | 0 | 0 | 3 | 3 | 2 | 2 | 1 | 0 |
+| **LR_cc rejects (/7)** | 6 | 6 | 7 | 7 | 7 | 4 | 7 | 7 |
 <!-- INDEPENDENCE:END -->
+
+**Crown impact — evidence, not a verdict.** This is the statistic behind the flip
+condition set for the provisional crown (har_rv_cal featured, garch_11 benchmark). It
+points toward garch_11: **garch_11 never rejects independence** (0/14 ticker×level
+tests) while har_rv_cal rejects 4/14, three of which are genuine clustering (JPM at
+both levels, XOM at 99%). But two qualifications matter before anyone treats that as
+decisive — the joint LR_cc test splits (garch_11 0/7 vs har_rv_cal 3/7 at 95%, but
+6/7 vs 4/7 at 99%, where har_rv_cal's much better breach *rate* dominates), and the
+clustering is **ticker-specific**: JPM and XOM show it, AAPL/MSFT/NVDA/^GSPC do not.
+The labelling stays as-is; the crown remains provisional pending the rendered breach
+page.
 
 The structural residuals these tables measure (fat tails at 99%, Kupiec's power, the
 range-vs-close proxy gap) are consolidated in [Limitations](#limitations).
@@ -403,8 +451,12 @@ Honest residuals, each measured or dated rather than asserted:
    tickers respectively. Calibration fixes the *variance level*, not the *tail shape*.
    Student-t innovations are the documented stretch fix.
 2. **Kupiec's POF test has low power at 99%** with n ≈ 1,760 (~17.6 expected breaches):
-   non-rejection there is weak evidence, not proof. Kupiec also tests *frequency* only —
-   the **Christoffersen independence test** (breach clustering) is a recorded stretch item.
+   non-rejection there is weak evidence, not proof. Kupiec also tests *frequency* only;
+   the **Christoffersen independence test is now implemented** (see above) and inherits
+   the same power problem at 99%, where the median n_11 is 2. A further caveat the
+   results exposed: roughly half of all independence rejections are *anti*-clustering
+   (breaches too evenly spaced), so "rejects independence" and "clusters in crises" are
+   not the same claim.
 3. **Range vs close-to-close variance are different targets.** Garman–Klass measures the
    intraday session range and omits the overnight gap; model rankings flip with the
    evaluation proxy (see Proxy robustness above). This gap is why the `_cal` calibration
