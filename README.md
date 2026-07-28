@@ -585,7 +585,12 @@ Two implementation notes worth stating rather than hiding:
 - The store is **SQLite** (`mlflow.db`) rather than MLflow's plain-directory file store,
   which as of MLflow 3.14 is in maintenance mode and raises unless explicitly opted into.
   SQLite is still a single local file with no server. Both `mlflow.db` and `mlruns/` are
-  gitignored and regenerable from Postgres.
+  gitignored and regenerable from Postgres. **That deprecation is why the graceful path
+  above is load-bearing rather than theoretical:** it was not read out of a changelog —
+  the first real run hit it, the wrapper caught the raised error, logged a warning and
+  let the evaluation finish, and the store was switched to SQLite afterwards. An
+  optional dependency broke in a live run on day one and cost the pipeline nothing,
+  which is the entire argument for building it this way.
 - Cost: ~8 s per run against a 5–15 minute nightly job (under 2%), and it cannot extend
   the job on failure because failures return immediately.
 
