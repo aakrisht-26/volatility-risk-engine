@@ -202,41 +202,59 @@ computed — the results block below was empty in the registering commit):
 <!-- INDEPENDENCE:BEGIN -->
 **Outcomes vs pre-registered predictions:**
 
-- (i) GARCH-family models pass independence more often: **CONFIRMED** — ewma_094 + garch_11 reject 1/28 tests, the GK-target models 16/42.
+- (i) GARCH-family models pass independence more often: **CONFIRMED** — ewma_094 + garch_11 reject 1/28 tests, the GK-target models 16/42. **Population: the 5 BASE variants only** (2 + 3 models x 7 tickers x 2 levels = 28 + 42 tests), because that is the population the prediction was registered over — the _cal and _t variants did not exist yet. These two denominators therefore will NOT be found by adding up the tables below, which cover all variants; every other number in this section will be.
 - (ii) Failures concentrate at 95%: **CONFIRMED** — 27 rejections at 95% vs 21 at 99% (directional, not overwhelming).
 - (iii) The 99% test is underpowered: **supported** — median n_11 at 99% is 1, so most series carry almost no information about clustering; non-rejection there is not evidence of independence.
 
 **Surprise worth stating:** only **27 of 48** rejections are clustering (pi_11 > pi_01). The other **21** are *anti*-clustering — breaches spaced too regularly to be independent. Rejection is therefore not a synonym for clustering, and an eyeball of the breach chart would likely not flag the anti-clustered cases at all.
 
-Cells show **n_11 / p-value**: n_11 is the count of breaches immediately following a breach (the clustering signal), p is Christoffersen's LR_ind (chi-square(1), H0 = independence). ‡ = independence rejected at 5%. The last row counts rejections of the joint conditional-coverage test LR_cc = LR_uc + LR_ind (chi-square(2)).
+**Population for every figure below except verdict (i):** all 16 model variants x 7 tickers x 2 levels = 224 independence tests. Both tables render all of them, so their reject columns add up to the totals quoted above.
+
+Cells show **n_11 / p-value**: n_11 is the count of breaches immediately following a breach (the clustering signal), p is Christoffersen's LR_ind (chi-square(1), H0 = independence). ‡ = independence rejected at 5%. The two right-hand columns count each variant's rejections across the seven tickers — of independence, and of the joint conditional-coverage test LR_cc = LR_uc + LR_ind (chi-square(2)) — and the TOTAL row is their sum.
 
 **95% VaR — independence**
 
-| ticker | ewma_094 | garch_11 | har_rv | lgbm | lgbm_vix | har_rv_cal | lgbm_cal | lgbm_vix_cal |
-|---|---|---|---|---|---|---|---|---|
-| AAPL | 6 / p=0.444 | 2 / p=0.230 | 11 / p=0.828 | 24 / p=0.285 | 16 / p=0.670 | 1 / p=0.292 | 6 / p=0.681 | 6 / p=0.928 |
-| JPM | 10 / p=0.079 | 8 / p=0.253 | 17 / p=0.015 ‡ | 26 / p=0.009 ‡ | 25 / p=0.002 ‡ | 8 / p=0.012 ‡ | 13 / p=0.008 ‡ | 14 / p=0.001 ‡ |
-| MSFT | 5 / p=0.874 | 2 / p=0.056 | 9 / p=0.208 | 22 / p=0.837 | 15 / p=0.422 | 2 / p=0.168 | 6 / p=0.318 | 8 / p=0.987 |
-| NVDA | 6 / p=0.383 | 3 / p=0.794 | 9 / p=0.507 | 12 / p=0.019 ‡ | 11 / p=0.028 ‡ | 3 / p=0.893 | 3 / p=0.307 | 1 / p=0.043 ‡ |
-| TSLA | 1 / p=0.039 ‡ | 1 / p=0.138 | 5 / p=0.013 ‡ | 11 / p=0.032 ‡ | 5 / p=0.000 ‡ | 0 / p=0.005 ‡ | 2 / p=0.008 ‡ | 2 / p=0.017 ‡ |
-| XOM | 9 / p=0.169 | 5 / p=0.874 | 13 / p=0.781 | 24 / p=0.285 | 26 / p=0.187 | 9 / p=0.110 | 14 / p=0.065 | 13 / p=0.159 |
-| ^GSPC | 7 / p=0.877 | 7 / p=0.958 | 14 / p=0.641 | 35 / p=0.378 | 25 / p=0.496 | 6 / p=0.191 | 12 / p=0.143 | 8 / p=0.910 |
-| **Independence rejects (/7)** | 1 | 0 | 2 | 3 | 3 | 2 | 2 | 3 |
-| **LR_cc rejects (/7)** | 0 | 0 | 7 | 7 | 7 | 3 | 5 | 5 |
+| model | AAPL | JPM | MSFT | NVDA | TSLA | XOM | ^GSPC | ind rejects | LR_cc rejects |
+|---|---|---|---|---|---|---|---|---|---|
+| ewma_094 | 6 / p=0.444 | 10 / p=0.079 | 5 / p=0.874 | 6 / p=0.383 | 1 / p=0.039 ‡ | 9 / p=0.169 | 7 / p=0.877 | 1 | 0 |
+| ewma_094_t | 7 / p=0.404 | 10 / p=0.229 | 6 / p=0.951 | 6 / p=0.768 | 7 / p=0.548 | 10 / p=0.155 | 9 / p=0.607 | 0 | 3 |
+| garch_11 | 2 / p=0.230 | 8 / p=0.253 | 2 / p=0.056 | 3 / p=0.794 | 1 / p=0.138 | 5 / p=0.874 | 7 / p=0.958 | 0 | 0 |
+| garch_11_t | 4 / p=0.554 | 11 / p=0.074 | 3 / p=0.106 | 3 / p=0.720 | 7 / p=0.688 | 8 / p=0.476 | 7 / p=0.652 | 0 | 4 |
+| har_rv | 11 / p=0.828 | 17 / p=0.015 ‡ | 9 / p=0.208 | 9 / p=0.507 | 5 / p=0.013 ‡ | 13 / p=0.781 | 14 / p=0.641 | 2 | 7 |
+| har_rv_t | 12 / p=0.779 | 17 / p=0.043 ‡ | 9 / p=0.160 | 10 / p=0.467 | 11 / p=0.046 ‡ | 13 / p=0.904 | 16 / p=0.910 | 2 | 7 |
+| lgbm | 24 / p=0.285 | 26 / p=0.009 ‡ | 22 / p=0.837 | 12 / p=0.019 ‡ | 11 / p=0.032 ‡ | 24 / p=0.285 | 35 / p=0.378 | 3 | 7 |
+| lgbm_t | 28 / p=0.107 | 29 / p=0.022 ‡ | 22 / p=0.865 | 14 / p=0.033 ‡ | 29 / p=0.385 | 27 / p=0.295 | 38 / p=0.459 | 2 | 7 |
+| lgbm_vix | 16 / p=0.670 | 25 / p=0.002 ‡ | 15 / p=0.422 | 11 / p=0.028 ‡ | 5 / p=0.000 ‡ | 26 / p=0.187 | 25 / p=0.496 | 3 | 7 |
+| lgbm_vix_t | 21 / p=0.817 | 28 / p=0.011 ‡ | 17 / p=0.565 | 14 / p=0.059 | 28 / p=0.196 | 28 / p=0.223 | 26 / p=0.270 | 1 | 7 |
+| har_rv_cal | 1 / p=0.292 | 8 / p=0.012 ‡ | 2 / p=0.168 | 3 / p=0.893 | 0 / p=0.005 ‡ | 9 / p=0.110 | 6 / p=0.191 | 2 | 3 |
+| har_rv_cal_t | 1 / p=0.254 | 10 / p=0.006 ‡ | 2 / p=0.142 | 3 / p=0.948 | 2 / p=0.022 ‡ | 10 / p=0.070 | 7 / p=0.168 | 2 | 3 |
+| lgbm_cal | 6 / p=0.681 | 13 / p=0.008 ‡ | 6 / p=0.318 | 3 / p=0.307 | 2 / p=0.008 ‡ | 14 / p=0.065 | 12 / p=0.143 | 2 | 5 |
+| lgbm_cal_t | 6 / p=0.576 | 19 / p=0.002 ‡ | 7 / p=0.275 | 3 / p=0.116 | 7 / p=0.036 ‡ | 14 / p=0.218 | 13 / p=0.245 | 2 | 7 |
+| lgbm_vix_cal | 6 / p=0.928 | 14 / p=0.001 ‡ | 8 / p=0.987 | 1 / p=0.043 ‡ | 2 / p=0.017 ‡ | 13 / p=0.159 | 8 / p=0.910 | 3 | 5 |
+| lgbm_vix_cal_t | 7 / p=0.877 | 15 / p=0.007 ‡ | 8 / p=0.603 | 3 / p=0.211 | 6 / p=0.012 ‡ | 14 / p=0.180 | 10 / p=0.868 | 2 | 5 |
+| **TOTAL (16 variants x 7 tickers = 112 tests)** | | | | | | | | **27** | **77** |
 
 **99% VaR — independence**
 
-| ticker | ewma_094 | garch_11 | har_rv | lgbm | lgbm_vix | har_rv_cal | lgbm_cal | lgbm_vix_cal |
-|---|---|---|---|---|---|---|---|---|
-| AAPL | 2 / p=0.309 | 0 / p=0.292 | 1 / p=0.737 | 4 / p=0.586 | 4 / p=0.764 | 1 / p=0.335 | 1 / p=0.962 | 2 / p=0.396 |
-| JPM | 3 / p=0.122 | 2 / p=0.257 | 6 / p=0.009 ‡ | 10 / p=0.010 ‡ | 11 / p=0.000 ‡ | 4 / p=0.002 ‡ | 6 / p=0.001 ‡ | 3 / p=0.073 |
-| MSFT | 0 / p=0.262 | 1 / p=0.844 | 1 / p=0.312 | 5 / p=0.685 | 3 / p=0.307 | 0 / p=0.292 | 1 / p=0.669 | 1 / p=0.773 |
-| NVDA | 0 / p=0.435 | 0 / p=0.588 | 2 / p=0.789 | 2 / p=0.267 | 1 / p=0.150 | 0 / p=0.636 | 0 / p=0.308 | 0 / p=0.292 |
-| TSLA | 0 / p=0.308 | 0 / p=0.324 | 0 / p=0.033 ‡ | 1 / p=0.010 ‡ | 0 / p=0.002 ‡ | 0 / p=0.396 | 0 / p=0.173 | 0 / p=0.133 |
-| XOM | 1 / p=0.805 | 1 / p=0.765 | 7 / p=0.004 ‡ | 9 / p=0.040 ‡ | 7 / p=0.435 | 4 / p=0.001 ‡ | 4 / p=0.056 | 3 / p=0.449 |
-| ^GSPC | 2 / p=0.366 | 1 / p=0.923 | 4 / p=0.687 | 12 / p=0.194 | 8 / p=0.931 | 2 / p=0.091 | 2 / p=0.974 | 4 / p=0.096 |
-| **Independence rejects (/7)** | 0 | 0 | 3 | 3 | 2 | 2 | 1 | 0 |
-| **LR_cc rejects (/7)** | 6 | 6 | 7 | 7 | 7 | 4 | 7 | 7 |
+| model | AAPL | JPM | MSFT | NVDA | TSLA | XOM | ^GSPC | ind rejects | LR_cc rejects |
+|---|---|---|---|---|---|---|---|---|---|
+| ewma_094 | 2 / p=0.309 | 3 / p=0.122 | 0 / p=0.262 | 0 / p=0.435 | 0 / p=0.308 | 1 / p=0.805 | 2 / p=0.366 | 0 | 6 |
+| ewma_094_t | 2 / p=0.091 | 2 / p=0.079 | 0 / p=0.359 | 0 / p=0.588 | 0 / p=0.396 | 1 / p=0.466 | 2 / p=0.190 | 0 | 3 |
+| garch_11 | 0 / p=0.292 | 2 / p=0.257 | 1 / p=0.844 | 0 / p=0.588 | 0 / p=0.324 | 1 / p=0.765 | 1 / p=0.923 | 0 | 6 |
+| garch_11_t | 0 / p=0.359 | 1 / p=0.366 | 0 / p=0.292 | 0 / p=0.660 | 0 / p=0.415 | 1 / p=0.366 | 1 / p=0.611 | 0 | 2 |
+| har_rv | 1 / p=0.737 | 6 / p=0.009 ‡ | 1 / p=0.312 | 2 / p=0.789 | 0 / p=0.033 ‡ | 7 / p=0.004 ‡ | 4 / p=0.687 | 3 | 7 |
+| har_rv_t | 1 / p=0.962 | 5 / p=0.004 ‡ | 1 / p=0.512 | 1 / p=0.960 | 0 / p=0.184 | 4 / p=0.036 ‡ | 3 / p=0.698 | 2 | 7 |
+| lgbm | 4 / p=0.586 | 10 / p=0.010 ‡ | 5 / p=0.685 | 2 / p=0.267 | 1 / p=0.010 ‡ | 9 / p=0.040 ‡ | 12 / p=0.194 | 3 | 7 |
+| lgbm_t | 3 / p=0.756 | 8 / p=0.002 ‡ | 4 / p=0.963 | 1 / p=0.220 | 0 / p=0.010 ‡ | 7 / p=0.034 ‡ | 7 / p=0.534 | 3 | 7 |
+| lgbm_vix | 4 / p=0.764 | 11 / p=0.000 ‡ | 3 / p=0.307 | 1 / p=0.150 | 0 / p=0.002 ‡ | 7 / p=0.435 | 8 / p=0.931 | 2 | 7 |
+| lgbm_vix_t | 4 / p=0.612 | 5 / p=0.059 | 1 / p=0.175 | 0 / p=0.040 ‡ | 0 / p=0.016 ‡ | 6 / p=0.327 | 6 / p=0.652 | 2 | 7 |
+| har_rv_cal | 1 / p=0.335 | 4 / p=0.002 ‡ | 0 / p=0.292 | 0 / p=0.636 | 0 / p=0.396 | 4 / p=0.001 ‡ | 2 / p=0.091 | 2 | 4 |
+| har_rv_cal_t | 1 / p=0.224 | 3 / p=0.003 ‡ | 0 / p=0.377 | 0 / p=0.710 | 0 / p=0.456 | 3 / p=0.003 ‡ | 2 / p=0.079 | 2 | 3 |
+| lgbm_cal | 1 / p=0.962 | 6 / p=0.001 ‡ | 1 / p=0.669 | 0 / p=0.308 | 0 / p=0.173 | 4 / p=0.056 | 2 / p=0.974 | 1 | 7 |
+| lgbm_cal_t | 1 / p=0.574 | 6 / p=0.000 ‡ | 1 / p=0.687 | 0 / p=0.476 | 0 / p=0.262 | 3 / p=0.063 | 2 / p=0.309 | 1 | 6 |
+| lgbm_vix_cal | 2 / p=0.396 | 3 / p=0.073 | 1 / p=0.773 | 0 / p=0.292 | 0 / p=0.133 | 3 / p=0.449 | 4 / p=0.096 | 0 | 7 |
+| lgbm_vix_cal_t | 2 / p=0.211 | 0 / p=0.308 | 1 / p=0.884 | 0 / p=0.456 | 0 / p=0.233 | 3 / p=0.095 | 3 / p=0.073 | 0 | 6 |
+| **TOTAL (16 variants x 7 tickers = 112 tests)** | | | | | | | | **21** | **92** |
 <!-- INDEPENDENCE:END -->
 
 ### The model crown — settled
@@ -343,7 +361,7 @@ distinguish "more independent" from "fewer events in which to detect dependence"
 
 - (i) 99% under-coverage narrows materially: **CONFIRMED** — average 99% breach rate 3.07% (normal) -> 2.42% (t) against 1% nominal; Kupiec rejections 51/56 -> 42/56.
 - (ii) 95% coverage degrades toward over-coverage: **NOT confirmed** — average 95% breach rate 7.14% (normal) -> 7.93% (t); Kupiec rejections 34/56 -> 41/56.
-- (iii) estimated df lands in 3-8: **CONFIRMED** — median df 6.42, range 3.50-9.82, 89% of (ticker, model) series inside 3-8.
+- (iii) estimated df lands in 3-8: **CONFIRMED** — median df 6.42, range 3.50-9.82, 89% of the 56 (ticker, model) series inside 3-8. This 6.42 is the median of each series' OWN median df over its whole walk-forward path, **clamped months included** — distinct from the interior-only median quoted in the clamp-rate note below, which medians individual unclamped refits.
 - (iv) fewer independence rejections at 99% under t: **CONFIRMED** — 11/56 (normal) -> 10/56 (t). Read with the power caveat registered alongside it: mean 99% breaches fall 54.1 -> 42.6, so part of any drop is fewer events to detect dependence in, not more independence.
 
 Same variance forecasts, different quantile: a Student-t scaled so its variance equals the model's forecast, with degrees of freedom estimated by MLE on standardized residuals at each monthly refit (training data only). Nominal breach rates are 5% and 1%.
@@ -380,7 +398,9 @@ Reporting a median df alone would hide the refits where the MLE did not converge
 interior estimate. Across the full walk-forward (56 series × 85 monthly refits, 4,424
 after warm-up), **21 refits (0.47%) clamped at the Gaussian upper bound** and **3 (0.07%)
 were rejected at the lower bound**; the remaining 99.5% are interior estimates with a
-**median df of 6.34**. Two honest readings follow:
+**median df of 6.34** — a median over individual *unclamped refits*, which is why it is
+not the 6.42 reported in prediction (iii) above: that one medians each (ticker, model)
+series' entire df path, clamped months included. Two honest readings follow:
 
 - A high clamp means the MLE ran to `df → ∞` (raw estimates reached 10¹²) because that
   training window's standardized residuals were indistinguishable from Gaussian. For
@@ -652,7 +672,7 @@ Honest residuals, each measured or dated rather than asserted:
    (har_rv_cal) **1.49%**, with Kupiec rejecting 6/7 and 4/7 tickers. Calibration fixes
    the *variance level*, not the *tail shape*. Replacing only the quantile with a
    variance-matched **Student-t** (df ≈ 6–7, MLE, walk-forward) closes much of the gap:
-   garch_11 **1.85% → 1.45%** (6/7 → 3/7 rejections) and har_rv_cal **1.49% → 1.26%**
+   garch_11 **1.85% → 1.44%** (6/7 → 3/7 rejections) and har_rv_cal **1.49% → 1.26%**
    (4/7 → **1/7**). The residual is not eliminated — a symmetric t still misses left-tail
    asymmetry, and skewed-t or EVT tails are the next step, unbuilt.
    **The trade is real and measured:** the same construction moves mass off the

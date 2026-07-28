@@ -423,26 +423,53 @@ def render_report(coverage: pd.DataFrame, calibrated: bool) -> str:
     return "\n".join(parts)
 
 
+def independence_population(calibrated: bool) -> list[str]:
+    """Every variant the independence verdicts are computed over, in report order.
+
+    Each normal-quantile variant is followed immediately by its Student-t
+    counterpart. This is the SAME list the tables render, which is what makes
+    the block reconcilable: the reject columns sum to the verdict totals.
+    """
+    normal = list(BASE_MODEL_ORDER) + (
+        [m + CAL_SUFFIX for m in GK_TARGET_MODELS] if calibrated else []
+    )
+    return [variant for m in normal for variant in (m, m + T_SUFFIX)]
+
+
 def _independence_table(coverage: pd.DataFrame, level: int, models: list[str]) -> str:
-    """Per-ticker n_11 (breach-after-breach) and the independence p-value."""
+    """n_11 (breach-after-breach) and the independence p-value, per variant.
+
+    Variants are ROWS and tickers are COLUMNS. The transpose is deliberate: at
+    16 variants a model-per-column table is unreadably wide, and this
+    orientation puts the per-variant reject counts in a column the reader can
+    add up to reproduce the totals quoted in the verdicts above.
+    """
     sub = coverage[coverage["level"] == level]
     present = [m for m in models if m in set(sub["model"])]
-    n11 = sub.pivot(index="ticker", columns="model", values="n_11")[present]
-    pind = sub.pivot(index="ticker", columns="model", values="p_ind")[present]
+    tickers = list(sub.pivot(index="model", columns="ticker", values="n_11").columns)
+    n11 = sub.pivot(index="model", columns="ticker", values="n_11")
+    pind = sub.pivot(index="model", columns="ticker", values="p_ind")
+    pcc = sub.pivot(index="model", columns="ticker", values="p_cc")
 
-    lines = ["| ticker | " + " | ".join(present) + " |", "|---" * (len(present) + 1) + "|"]
-    for ticker in n11.index:
+    header = ["model", *tickers, "ind rejects", "LR_cc rejects"]
+    lines = ["| " + " | ".join(header) + " |", "|---" * len(header) + "|"]
+    ind_total = cc_total = 0
+    for m in present:
         cells = []
-        for m in present:
-            mark = " ‡" if pind.loc[ticker, m] < 0.05 else ""
-            cells.append(f"{int(n11.loc[ticker, m])} / p={pind.loc[ticker, m]:.3f}{mark}")
-        lines.append(f"| {ticker} | " + " | ".join(cells) + " |")
-    rejects = " | ".join(str(int((pind[m] < 0.05).sum())) for m in present)
-    lines.append(f"| **Independence rejects (/{len(n11)})** | " + rejects + " |")
-    cc_rejects = " | ".join(
-        str(int((sub[sub["model"] == m]["p_cc"] < 0.05).sum())) for m in present
+        for ticker in tickers:
+            mark = " ‡" if pind.loc[m, ticker] < 0.05 else ""
+            cells.append(f"{int(n11.loc[m, ticker])} / p={pind.loc[m, ticker]:.3f}{mark}")
+        ind_rej = int((pind.loc[m] < 0.05).sum())
+        cc_rej = int((pcc.loc[m] < 0.05).sum())
+        ind_total += ind_rej
+        cc_total += cc_rej
+        lines.append(f"| {m} | " + " | ".join(cells) + f" | {ind_rej} | {cc_rej} |")
+    lines.append(
+        f"| **TOTAL ({len(present)} variants x {len(tickers)} tickers = "
+        f"{len(present) * len(tickers)} tests)** |"
+        + " |" * len(tickers)
+        + f" **{ind_total}** | **{cc_total}** |"
     )
-    lines.append(f"| **LR_cc rejects (/{len(n11)})** | " + cc_rejects + " |")
     return "\n".join(lines)
 
 
@@ -473,13 +500,19 @@ def _independence_verdicts(coverage: pd.DataFrame) -> list[str]:
     anti = len(rejected) - clustering
     n11_99 = coverage[coverage["level"] == 99]["n_11"].median()
 
+    n_base, n_tick = len(garch_family), coverage["ticker"].nunique()
     return [
         "**Outcomes vs pre-registered predictions:**",
         "",
         f"- (i) GARCH-family models pass independence more often: "
         f"**{'CONFIRMED' if g_rej / g_n < k_rej / k_n else 'not confirmed'}** — "
         f"ewma_094 + garch_11 reject {g_rej}/{g_n} tests, the GK-target models "
-        f"{k_rej}/{k_n}.",
+        f"{k_rej}/{k_n}. **Population: the {n_base + len(gk_base)} BASE variants only** "
+        f"({n_base} + {len(gk_base)} models x {n_tick} tickers x 2 levels = "
+        f"{g_n} + {k_n} tests), because that is the population the prediction was "
+        f"registered over — the _cal and _t variants did not exist yet. These two "
+        f"denominators therefore will NOT be found by adding up the tables below, "
+        f"which cover all variants; every other number in this section will be.",
         f"- (ii) Failures concentrate at 95%: "
         f"**{'CONFIRMED' if at95 > at99 else 'not confirmed'}** — {at95} rejections at "
         f"95% vs {at99} at 99% (directional, not overwhelming).",
@@ -498,16 +531,22 @@ def _independence_verdicts(coverage: pd.DataFrame) -> list[str]:
 
 def render_independence_report(coverage: pd.DataFrame, calibrated: bool) -> str:
     """Christoffersen independence + conditional-coverage tables."""
-    models = list(BASE_MODEL_ORDER) + (
-        [m + CAL_SUFFIX for m in GK_TARGET_MODELS] if calibrated else []
-    )
+    models = independence_population(calibrated)
+    n_tick = coverage["ticker"].nunique()
+    n_variants = len([m for m in models if m in set(coverage["model"])])
     parts = [
         *_independence_verdicts(coverage),
+        f"**Population for every figure below except verdict (i):** all {n_variants} model "
+        f"variants x {n_tick} tickers x 2 levels = {n_variants * n_tick * 2} independence "
+        "tests. Both tables render all of them, so their reject columns add up to the "
+        "totals quoted above.",
+        "",
         "Cells show **n_11 / p-value**: n_11 is the count of breaches immediately "
         "following a breach (the clustering signal), p is Christoffersen's LR_ind "
-        "(chi-square(1), H0 = independence). ‡ = independence rejected at 5%. The last "
-        "row counts rejections of the joint conditional-coverage test "
-        "LR_cc = LR_uc + LR_ind (chi-square(2)).",
+        "(chi-square(1), H0 = independence). ‡ = independence rejected at 5%. The two "
+        "right-hand columns count each variant's rejections across the seven tickers — "
+        "of independence, and of the joint conditional-coverage test "
+        "LR_cc = LR_uc + LR_ind (chi-square(2)) — and the TOTAL row is their sum.",
         "",
         "**95% VaR — independence**",
         "",
@@ -536,7 +575,10 @@ def _student_t_verdicts(coverage: pd.DataFrame, models: list[str]) -> list[str]:
     t_models = [m + T_SUFFIX for m in models]
     n99, t99 = agg(models, 99), agg(t_models, 99)
     n95, t95 = agg(models, 95), agg(t_models, 95)
-    dfs = coverage[coverage["t_df"].notna()]["t_df"]
+    # One df path per (ticker, model); it is stored against both levels, so
+    # dedupe before summarising or every series would count twice.
+    df_rows = coverage[coverage["t_df"].notna()].drop_duplicates(["ticker", "model"])
+    dfs = df_rows["t_df"]
     df_lo, df_hi, df_med = dfs.min(), dfs.max(), dfs.median()
     in_range = int(((dfs >= 3) & (dfs <= 8)).sum()) / len(dfs) if len(dfs) else 0.0
 
@@ -559,7 +601,10 @@ def _student_t_verdicts(coverage: pd.DataFrame, models: list[str]) -> list[str]:
         f"- (iii) estimated df lands in 3-8: "
         f"**{'CONFIRMED' if in_range >= 0.5 else 'NOT confirmed'}** — median df "
         f"{df_med:.2f}, range {df_lo:.2f}-{df_hi:.2f}, {in_range * 100:.0f}% of "
-        f"(ticker, model) series inside 3-8.",
+        f"the {len(dfs)} (ticker, model) series inside 3-8. This {df_med:.2f} is the "
+        "median of each series' OWN median df over its whole walk-forward path, "
+        "**clamped months included** — distinct from the interior-only median quoted "
+        "in the clamp-rate note below, which medians individual unclamped refits.",
         f"- (iv) fewer independence rejections at 99% under t: "
         f"**{'CONFIRMED' if fewer_ind else 'NOT confirmed'}** — {n99['ind_rej']}/{n99['n']} "
         f"(normal) -> {t99['ind_rej']}/{t99['n']} (t). Read with the power caveat "
