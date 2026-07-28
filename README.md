@@ -294,7 +294,9 @@ as illustration rather than evidence.
 rejects 4/14, three of which are genuine clustering (JPM at both levels, XOM at 99%).
 It is not decisive on its own: the joint LR_cc test splits by level (garch_11 0/7 vs
 har_rv_cal 3/7 at 95%, but 6/7 vs 4/7 at 99%, where har_rv_cal's much better breach
-*rate* dominates). Labelling is unchanged and the crown stays provisional.
+*rate* dominates). **At this point (2026-07-21) labelling was left unchanged and the
+crown stayed provisional** pending the Student-t work below, which moved the coverage
+numbers and settled it; the outcome is the section above.
 
 ### Student-t VaR (fat-tailed quantiles)
 
@@ -502,16 +504,20 @@ run and fail the nightly job loudly when they aren't.
 The Power BI *surface* is live in the database: six views in the `dashboard` schema
 (migration 009) so the report re-points from dev Postgres to the cloud by editing two
 Power Query parameters. The page-by-page build spec with exact DAX is
-[docs/powerbi_spec.md](docs/powerbi_spec.md). Provisional model crown: **har_rv_cal
-featured, garch_11 as stated benchmark** — confirmed or flipped on the rendered breach
-page (breach *clustering* is the flip signal; Kupiec tests frequency, not independence).
+[docs/powerbi_spec.md](docs/powerbi_spec.md). Model crown, **settled 2026-07-22**:
+**`har_rv_cal_t` featured, `garch_11` as stated benchmark**. It was decided on the
+stored direction-split Christoffersen evidence, Kupiec coverage and capital cost — not
+on the rendered page — and `garch_11`'s independence advantage (**0/7 rejections at
+both levels** against har_rv_cal's 2/7) is stated wherever the crown is stated, here
+included: `har_rv_cal_t` for accuracy of the risk *level*, `garch_11` for breach
+*timing*.
 
 **The PBIX has not been built yet; no dashboard exists to screenshot.** Placeholders:
 
 <!-- SCREENSHOTS:PENDING — when the PBIX pages render, drop images into docs/img/ and
      replace the list items below with ![caption](docs/img/<name>.png); keep captions. -->
 - *(screenshot pending)* **Overview** — live next-session VaR per ticker; featured
-  har_rv_cal vs benchmark garch_11; data-freshness cards.
+  har_rv_cal_t vs benchmark garch_11; data-freshness cards.
 - *(screenshot pending)* **Forecast vs realized** — annualized vol lines per ticker/model.
 - *(screenshot pending)* **VaR breach tracker** — returns vs −VaR bands with breach
   markers; cumulative breaches vs expected. The crown page.
