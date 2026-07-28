@@ -3,15 +3,26 @@
 The contract that matters is negative: with MLflow absent or disabled, every
 entry point must no-op silently and the pipeline must be unaffected. Tracking
 is observability; it may never fail a risk run.
+
+The positive path is covered too, but only when the ``tracking`` extra is
+actually installed — CI runs the suite in both states so "MLflow present" is a
+tested configuration rather than an assumed one.
 """
 
 import builtins
+import importlib.util
 from datetime import date
+from pathlib import Path
 
 import pandas as pd
 import pytest
 
 from volrisk import tracking
+
+mlflow_installed = importlib.util.find_spec("mlflow") is not None
+requires_mlflow = pytest.mark.skipif(
+    not mlflow_installed, reason="optional 'tracking' extra not installed"
+)
 
 
 def ablation_frame() -> pd.DataFrame:
@@ -99,3 +110,55 @@ def test_ablation_markdown_contains_both_tables() -> None:
     assert "## QLIKE" in md
     assert "## RMSE" in md
     assert "har_rv" in md
+
+
+# --- the MLflow-present path (only meaningful with the extra installed) ---
+
+
+@requires_mlflow
+def test_real_mlflow_run_records_metrics_params_and_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End-to-end against a throwaway SQLite store in tmp_path.
+
+    Everything else in this file simulates MLflow. This one uses it, so the
+    parts that only fail against the real library — key sanitization rules, the
+    SQLite backend, the create-then-set experiment dance — are exercised.
+    """
+    import mlflow
+
+    monkeypatch.delenv("VOLRISK_DISABLE_MLFLOW", raising=False)
+    uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
+
+    run_id = tracking.log_evaluation(
+        ablation_frame(),
+        coverage_frame(),
+        params={"refit_cadence": "calendar-monthly"},
+        tracking_uri=uri,
+        artifact_dir=tmp_path / "mlruns",
+        run_name="pytest",
+    )
+
+    assert run_id is not None  # a None here means the wrapper swallowed a failure
+    mlflow.set_tracking_uri(uri)
+    run = mlflow.get_run(run_id)
+    assert run.data.params["refit_cadence"] == "calendar-monthly"
+    assert run.data.metrics["qlike.har_rv.GSPC"] == pytest.approx(0.38)
+    assert run.data.metrics["kupiec_rejects_99.har_rv"] == pytest.approx(2.0)
+    assert {"ablation.csv", "var_coverage.csv", "ablation.md"} <= {
+        f.path for f in mlflow.artifacts.list_artifacts(run_id=run_id)
+    }
+
+
+@requires_mlflow
+def test_pandas_stayed_on_3x_with_the_tracking_extra_installed() -> None:
+    """The standing pin tripwire, as an executable check.
+
+    The full ``mlflow`` package pins pandas<3; ``mlflow-skinny`` does not. If a
+    future lock swaps one for the other, this fails loudly here instead of
+    silently downgrading the whole project's dataframe stack.
+    """
+    assert int(pd.__version__.split(".")[0]) >= 3, (
+        f"the tracking extra pulled pandas back to {pd.__version__}; "
+        "the standing pandas<3 tripwire has fired"
+    )
