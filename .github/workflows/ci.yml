@@ -7,6 +7,19 @@ on:
 
 jobs:
   lint-and-test:
+    # Two dependency states, both shipped: the default install and the optional
+    # `tracking` extra. Without the second, the MLflow-present code path and the
+    # mlflow-skinny/pandas<3 resolution guard would only ever be exercised by
+    # hand on a dev machine.
+    name: lint-and-test (${{ matrix.variant }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: base
+            uv_args: ""
+          - variant: tracking
+            uv_args: "--extra tracking"
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -33,16 +46,27 @@ jobs:
       - name: Install Python (version pinned in .python-version)
         run: uv python install
 
+      # Every uv command carries the same extras: `uv run` re-syncs the
+      # environment to the flags it is given, so omitting them here would
+      # uninstall the extra that was just installed.
       - name: Sync dependencies from lockfile
-        run: uv sync --locked
+        run: uv sync --locked ${{ matrix.uv_args }}
 
       - name: Lint
-        run: uv run ruff check .
+        run: uv run ${{ matrix.uv_args }} ruff check .
 
       - name: Format check
-        run: uv run ruff format --check .
+        run: uv run ${{ matrix.uv_args }} ruff format --check .
+
+      - name: Confirm the tracking extra really installed
+        if: matrix.variant == 'tracking'
+        run: |
+          uv run --extra tracking python -c "
+          import mlflow, pandas
+          print('mlflow', mlflow.__version__, '| pandas', pandas.__version__)
+          "
 
       - name: Tests
-        run: uv run pytest
+        run: uv run ${{ matrix.uv_args }} pytest
         env:
           VOLRISK_TEST_DATABASE_URL: postgresql+psycopg://volrisk:volrisk@localhost:5432/volrisk_test
