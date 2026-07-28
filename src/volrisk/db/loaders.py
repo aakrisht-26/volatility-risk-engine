@@ -224,6 +224,8 @@ VAR_COVERAGE = Table(
     Column("p_ind", Double),
     Column("lr_cc", Double),
     Column("p_cc", Double),
+    # Median walk-forward degrees of freedom; NULL for normal-quantile rows (012).
+    Column("t_df", Double),
     Column("eval_start", Date, nullable=False),
     Column("eval_end", Date, nullable=False),
     Column("computed_at", DateTime(timezone=True), server_default=func.now()),
@@ -258,6 +260,7 @@ _VAR_COVERAGE_COLUMNS = (
     "p_ind",
     "lr_cc",
     "p_cc",
+    "t_df",
     "eval_start",
     "eval_end",
 )

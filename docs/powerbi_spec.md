@@ -105,7 +105,7 @@ Formatting: `Kupiec p` 3 decimals; rates/vols 1–2 decimals; dates dd-mmm-yyyy.
 - Cards: **Latest Data Date**, **Data Age (days)** (conditional format: background
   red when > 4 — data is stale), and the **live next-session VaR card** for the
   FEATURED model: multi-row card from `v_latest_forecast` filtered (visual-level)
-  to `model = har_rv_cal` and `is_live = True`, fields ticker + `ann_vol_pct` —
+  to `model = har_rv_cal_t` and `is_live = True`, fields ticker + `ann_vol_pct` —
   title it "Next-session vol forecast (live)". A second, smaller card shows the
   benchmark (`model = garch_11`, `is_live = True`).
 - Live rows are the forecast FOR the next session after the last completed one
@@ -125,7 +125,7 @@ Formatting: `Kupiec p` 3 decimals; rates/vols 1–2 decimals; dates dd-mmm-yyyy.
 Slicers at top: `DimTicker[ticker]` (single-select, **default JPM** — the ticker
 whose breaches actually show dependence), `v_var_daily[level]` (buttons: 95 /
 99). Two identical visual columns, LEFT filtered (visual-level) to
-`model = garch_11` (benchmark), RIGHT to `model = har_rv_cal` (featured):
+`model = garch_11` (benchmark), RIGHT to `model = har_rv_cal_t` (featured):
 
 1. **Return-vs-VaR band** — line chart: Axis `DimDate[Date]`; Values
    `log_return_pct` (grey, thin) and `neg_var_threshold` (candidate color).
@@ -140,19 +140,32 @@ whose breaches actually show dependence), `v_var_daily[level]` (buttons: 95 /
    Breach Rate %, **Kupiec p** — conditional format Kupiec p red when < 0.05.
 4. **Avg Daily VaR %** card — the capital-efficiency number.
 
-**Crown scorecard** (computed 2026-07-20 from these exact views, n = 1,756/ticker):
+**Crown scorecard** (computed 2026-07-22 from these exact views, n = 1,762/ticker):
 
-| | garch_11 | har_rv_cal |
+| | garch_11 (benchmark) | har_rv_cal_t (featured) |
 |---|---|---|
-| 95% avg breach rate (nominal 5%) | 5.21% — 1/7 rejects | 4.48% — 2/7 rejects (over-covers) |
-| 99% avg breach rate (nominal 1%) | 1.85% — 6/7 rejects | **1.49% — 4/7 rejects (least-bad)** |
-| Avg daily VaR (capital) 95 / 99 | 3.514% / 4.970% | 3.532% / 4.995% (dead heat) |
+| 95% avg breach rate (nominal 5%) | 5.21% — 1/7 rejects | **4.94% — 2/7 rejects** |
+| 99% avg breach rate (nominal 1%) | 1.85% — 6/7 rejects | **1.26% — 1/7 rejects** |
+| Independence (LR_ind rejects) | **0/7 at both levels** | 2/7 at both levels |
 | Accuracy context | wins r² proxy QLIKE | wins GK-proxy QLIKE + RMSE everywhere |
 
-**Crown status (PROVISIONAL, ruled 2026-07-20): har_rv_cal is the FEATURED
-model across the dashboard; garch_11 is the stated BENCHMARK on every page
-where both appear** — label them exactly that way in visual titles. Rationale:
-capital dead heat, conservative-side 95% miss, least-bad 99%.
+Note for the page: `har_rv_cal_t` shares `har_rv_cal`'s **variance** forecast
+exactly — only the quantile differs — so the Overview vol number is identical
+between them; the tag matters for the VaR threshold, not the vol.
+
+**Crown status — SETTLED 2026-07-22: `har_rv_cal_t` is the FEATURED model
+across the dashboard; `garch_11` is the stated BENCHMARK on every page where
+both appear** — label them exactly that way in visual titles.
+
+Rationale to reproduce in a text box on this page: har_rv_cal_t is the
+best-calibrated model in the project (95% breach rate 4.94%, 2/7 Kupiec
+rejects; 99% 1.26%, 1/7), and coverage is the primary VaR criterion because it
+is what the risk number claims to deliver. **garch_11 wins independence
+outright (0/7 at both levels vs 2/7), and that advantage must be stated
+wherever the crown is stated** — bursty breaches are worse than evenly spaced
+ones, because losses compound faster than capital replenishes. Honest framing:
+*har_rv_cal_t for accuracy of the risk level, garch_11 for timing behaviour; a
+production desk would plausibly run both.*
 
 **The crown procedure was revised on 2026-07-21 — this page no longer decides
 it.** The original plan (eyeball whether har_rv_cal's breaches cluster) was

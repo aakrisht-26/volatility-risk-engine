@@ -33,6 +33,7 @@ from volrisk.db.loaders import store_var_results, upsert_variance_forecasts
 from volrisk.models.baselines import forecasts_frame
 from volrisk.risk.christoffersen import christoffersen_independence, conditional_coverage
 from volrisk.risk.kupiec import kupiec_pof
+from volrisk.risk.student_t import t_var_thresholds, walk_forward_t_df
 from volrisk.risk.var import LEVELS, TAIL_PROB, breach_mask, var_threshold
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,8 @@ logger = logging.getLogger(__name__)
 BASE_MODEL_ORDER = ("ewma_094", "garch_11", "har_rv", "lgbm", "lgbm_vix")
 GK_TARGET_MODELS = ("har_rv", "lgbm", "lgbm_vix")
 CAL_SUFFIX = "_cal"
+#: Student-t quantile variants (Stretch 2): same variance, fat-tailed quantile.
+T_SUFFIX = "_t"
 
 #: Prediction (i) confirmation criterion (pre-registered): the three GK-target
 #: models' average observed 95% breach rate at or above 6.0% (>= 20% relative
@@ -50,6 +53,8 @@ README_BEGIN = "<!-- VAR:BEGIN -->"
 README_END = "<!-- VAR:END -->"
 IND_BEGIN = "<!-- INDEPENDENCE:BEGIN -->"
 IND_END = "<!-- INDEPENDENCE:END -->"
+T_BEGIN = "<!-- STUDENTT:BEGIN -->"
+T_END = "<!-- STUDENTT:END -->"
 
 
 def load_forecasts_and_returns(engine: Engine) -> pd.DataFrame:
@@ -79,10 +84,21 @@ def load_calibration_inputs(engine: Engine) -> pd.DataFrame:
 
 
 def evaluate_coverage(
-    returns: pd.Series, variance: pd.Series, level: int
+    returns: pd.Series,
+    variance: pd.Series,
+    level: int,
+    df_series: pd.Series | None = None,
 ) -> tuple[dict, pd.DataFrame]:
-    """Coverage summary + breach-event rows for one (returns, variance) series."""
-    thr = var_threshold(variance, level)
+    """Coverage summary + breach-event rows for one (returns, variance) series.
+
+    With ``df_series`` the thresholds use each date's variance-matched Student-t
+    quantile instead of the normal z — same variance forecast, different tail
+    shape (Stretch 2).
+    """
+    if df_series is not None:
+        thr = t_var_thresholds(variance, df_series, level / 100.0)
+    else:
+        thr = var_threshold(variance, level)
     r = returns.to_numpy(dtype=float)
     mask = breach_mask(r, thr)
     x, n = int(mask.sum()), len(r)
@@ -108,6 +124,7 @@ def evaluate_coverage(
         "p_ind": ind.p_ind,
         "lr_cc": lr_cc,
         "p_cc": p_cc,
+        "t_df": float(np.median(df_series)) if df_series is not None else None,
         "eval_start": returns.index[0],
         "eval_end": returns.index[-1],
     }
@@ -168,10 +185,16 @@ def _per_ticker_wide(fdf: pd.DataFrame) -> dict[str, tuple[pd.DataFrame, pd.Seri
     return per_ticker
 
 
-def _collect(ticker: str, model: str, returns: pd.Series, variance: pd.Series):
+def _collect(
+    ticker: str,
+    model: str,
+    returns: pd.Series,
+    variance: pd.Series,
+    df_series: pd.Series | None = None,
+):
     cov_rows, breach_frames = [], []
     for level in LEVELS:
-        summary, events = evaluate_coverage(returns, variance, level)
+        summary, events = evaluate_coverage(returns, variance, level, df_series=df_series)
         cov_rows.append({"ticker": ticker, "model": model, **summary})
         if not events.empty:
             breach_frames.append(events.assign(ticker=ticker, model=model))
@@ -185,11 +208,15 @@ def compute_backtest(engine: Engine) -> tuple[pd.DataFrame, pd.DataFrame, bool]:
 
     cov_rows: list[dict] = []
     breach_frames: list[pd.DataFrame] = []
+    # (ticker, model) -> variance series, reused for the Student-t pass so the
+    # t variants differ from their normal counterparts ONLY in tail shape.
+    variance_series: dict[tuple[str, str], tuple[pd.Series, pd.Series]] = {}
     for ticker, (wide, ret) in per_ticker.items():
         for model in wide.columns:
             rows, frames = _collect(ticker, model, ret, wide[model])
             cov_rows += rows
             breach_frames += frames
+            variance_series[(ticker, model)] = (ret, wide[model])
     coverage = pd.DataFrame(cov_rows)
 
     calibrated = prediction_i_confirmed(coverage)
@@ -214,6 +241,7 @@ def compute_backtest(engine: Engine) -> tuple[pd.DataFrame, pd.DataFrame, bool]:
                 rows, frames = _collect(ticker, model + CAL_SUFFIX, ret, calibrated_series)
                 cov_rows += rows
                 breach_frames += frames
+                variance_series[(ticker, model + CAL_SUFFIX)] = (ret, calibrated_series)
                 # Persist the calibrated series as first-class forecast rows so
                 # the dashboard (dashboard.v_var_daily etc.) can chart the _cal
                 # variants' VaR bands — required for the Step-12 crown page.
@@ -249,6 +277,57 @@ def compute_backtest(engine: Engine) -> tuple[pd.DataFrame, pd.DataFrame, bool]:
                 context=f"{row.ticker}:{row.model}{CAL_SUFFIX}:live",
                 is_live=True,
             )
+
+    # --- Student-t pass (Stretch 2) ---------------------------------------
+    # Same variance forecasts, fat-tailed quantile. df is re-estimated by MLE
+    # on standardized residuals at each monthly boundary using training data
+    # only, so no threshold sees the return it is tested against.
+    df_diagnostics: list[dict] = []
+    for (ticker, model), (ret, variance) in list(variance_series.items()):
+        est = walk_forward_t_df(ret, variance)
+        rows, frames = _collect(ticker, model + T_SUFFIX, ret, variance, df_series=est.df_series)
+        cov_rows += rows
+        breach_frames += frames
+        df_diagnostics.append(
+            {
+                "ticker": ticker,
+                "model": model + T_SUFFIX,
+                "refits": est.n_refits,
+                "interior": est.n_interior,
+                "clamped_high": est.n_clamped_high,
+                "clamped_low": est.n_clamped_low,
+                "insufficient": est.n_insufficient,
+                "clamp_rate": est.clamp_rate,
+                "interior_median_df": est.interior_median,
+            }
+        )
+    coverage = pd.DataFrame(cov_rows)
+    coverage.attrs["df_diagnostics"] = pd.DataFrame(df_diagnostics)
+
+    # Live rows for the t variants. A t variant shares its base model's VARIANCE
+    # forecast exactly — only the quantile differs — so the live row is a re-tag,
+    # which is what lets the dashboard's Overview card filter on the featured
+    # model tag (har_rv_cal_t) rather than approximating it with its base.
+    live_base = pd.read_sql_query(
+        text(
+            "SELECT ticker, trade_date, model, var_forecast"
+            " FROM forecasts.daily_variance WHERE is_live"
+        ),
+        engine,
+    )
+    for row in live_base.itertuples():
+        if row.model.endswith(T_SUFFIX):
+            continue
+        upsert_variance_forecasts(
+            engine,
+            forecasts_frame(
+                row.ticker,
+                pd.Series([row.var_forecast], index=[row.trade_date]),
+                row.model + T_SUFFIX,
+            ),
+            context=f"{row.ticker}:{row.model}{T_SUFFIX}:live",
+            is_live=True,
+        )
 
     breaches = pd.concat(breach_frames, ignore_index=True) if breach_frames else pd.DataFrame()
     return coverage, breaches, calibrated
@@ -441,6 +520,101 @@ def render_independence_report(coverage: pd.DataFrame, calibrated: bool) -> str:
     return "\n".join(parts)
 
 
+def _student_t_verdicts(coverage: pd.DataFrame, models: list[str]) -> list[str]:
+    """Outcomes vs the pre-registered Student-t predictions, computed from data."""
+
+    def agg(model_set: list[str], level: int) -> dict:
+        sub = coverage[coverage["model"].isin(model_set) & (coverage["level"] == level)]
+        return {
+            "rate": float(sub["breach_rate"].mean()),
+            "kupiec_rej": int((sub["kupiec_p"] < 0.05).sum()),
+            "ind_rej": int((sub["p_ind"] < 0.05).sum()),
+            "breaches": float(sub["observed_breaches"].mean()),
+            "n": len(sub),
+        }
+
+    t_models = [m + T_SUFFIX for m in models]
+    n99, t99 = agg(models, 99), agg(t_models, 99)
+    n95, t95 = agg(models, 95), agg(t_models, 95)
+    dfs = coverage[coverage["t_df"].notna()]["t_df"]
+    df_lo, df_hi, df_med = dfs.min(), dfs.max(), dfs.median()
+    in_range = int(((dfs >= 3) & (dfs <= 8)).sum()) / len(dfs) if len(dfs) else 0.0
+
+    narrowed = abs(t99["rate"] - 0.01) < abs(n99["rate"] - 0.01)
+    toward_over = t95["rate"] < n95["rate"]
+    fewer_ind = t99["ind_rej"] < n99["ind_rej"]
+
+    return [
+        "**Outcomes vs pre-registered predictions:**",
+        "",
+        f"- (i) 99% under-coverage narrows materially: "
+        f"**{'CONFIRMED' if narrowed else 'NOT confirmed'}** — average 99% breach rate "
+        f"{n99['rate'] * 100:.2f}% (normal) -> {t99['rate'] * 100:.2f}% (t) against 1% "
+        f"nominal; Kupiec rejections {n99['kupiec_rej']}/{n99['n']} -> "
+        f"{t99['kupiec_rej']}/{t99['n']}.",
+        f"- (ii) 95% coverage degrades toward over-coverage: "
+        f"**{'CONFIRMED' if toward_over else 'NOT confirmed'}** — average 95% breach rate "
+        f"{n95['rate'] * 100:.2f}% (normal) -> {t95['rate'] * 100:.2f}% (t); Kupiec "
+        f"rejections {n95['kupiec_rej']}/{n95['n']} -> {t95['kupiec_rej']}/{t95['n']}.",
+        f"- (iii) estimated df lands in 3-8: "
+        f"**{'CONFIRMED' if in_range >= 0.5 else 'NOT confirmed'}** — median df "
+        f"{df_med:.2f}, range {df_lo:.2f}-{df_hi:.2f}, {in_range * 100:.0f}% of "
+        f"(ticker, model) series inside 3-8.",
+        f"- (iv) fewer independence rejections at 99% under t: "
+        f"**{'CONFIRMED' if fewer_ind else 'NOT confirmed'}** — {n99['ind_rej']}/{n99['n']} "
+        f"(normal) -> {t99['ind_rej']}/{t99['n']} (t). Read with the power caveat "
+        f"registered alongside it: mean 99% breaches fall {n99['breaches']:.1f} -> "
+        f"{t99['breaches']:.1f}, so part of any drop is fewer events to detect "
+        f"dependence in, not more independence.",
+        "",
+    ]
+
+
+def _t_comparison_table(coverage: pd.DataFrame, level: int, models: list[str]) -> str:
+    """Normal vs t, side by side: breach rate and Kupiec verdict per model."""
+    sub = coverage[coverage["level"] == level]
+    present = set(sub["model"])
+    lines = [
+        "| model | normal rate | t rate | normal Kupiec rejects | t Kupiec rejects | median df |",
+        "|---|---|---|---|---|---|",
+    ]
+    for m in models:
+        if m not in present or m + T_SUFFIX not in present:
+            continue
+        norm = sub[sub["model"] == m]
+        tvar = sub[sub["model"] == m + T_SUFFIX]
+        lines.append(
+            f"| {m} | {norm['breach_rate'].mean() * 100:.2f}% | "
+            f"{tvar['breach_rate'].mean() * 100:.2f}% | "
+            f"{int((norm['kupiec_p'] < 0.05).sum())}/{len(norm)} | "
+            f"{int((tvar['kupiec_p'] < 0.05).sum())}/{len(tvar)} | "
+            f"{tvar['t_df'].median():.2f} |"
+        )
+    return "\n".join(lines)
+
+
+def render_student_t_report(coverage: pd.DataFrame, calibrated: bool) -> str:
+    models = list(BASE_MODEL_ORDER) + (
+        [m + CAL_SUFFIX for m in GK_TARGET_MODELS] if calibrated else []
+    )
+    parts = [
+        *_student_t_verdicts(coverage, models),
+        "Same variance forecasts, different quantile: a Student-t scaled so its "
+        "variance equals the model's forecast, with degrees of freedom estimated by "
+        "MLE on standardized residuals at each monthly refit (training data only). "
+        "Nominal breach rates are 5% and 1%.",
+        "",
+        "**95% VaR — normal vs Student-t**",
+        "",
+        _t_comparison_table(coverage, 95, models),
+        "",
+        "**99% VaR — normal vs Student-t**",
+        "",
+        _t_comparison_table(coverage, 99, models),
+    ]
+    return "\n".join(parts)
+
+
 def _replace_block(markdown: str, begin: str, end: str, readme_path: Path) -> None:
     content = readme_path.read_text(encoding="utf-8")
     if begin not in content or end not in content:
@@ -458,6 +632,10 @@ def write_independence_section(markdown: str, readme_path: Path = Path("README.m
     _replace_block(markdown, IND_BEGIN, IND_END, readme_path)
 
 
+def write_student_t_section(markdown: str, readme_path: Path = Path("README.md")) -> None:
+    _replace_block(markdown, T_BEGIN, T_END, readme_path)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="VaR coverage backtest (parametric + Kupiec).")
     parser.add_argument("--write-readme", action="store_true")
@@ -473,16 +651,35 @@ def main() -> None:
     n_cov, n_br = store_var_results(engine, coverage, breaches)
     logger.info("stored %d coverage rows, %d breach events", n_cov, n_br)
 
+    # df-clamp canary (Stretch-2 addendum): a HIGH clamp means the MLE ran to
+    # the Gaussian boundary, so the t variant did nothing there; a LOW clamp
+    # means it wanted df <= 2, where the variance-matched quantile collapses.
+    diag = coverage.attrs.get("df_diagnostics")
+    if diag is not None and not diag.empty:
+        est = int((diag["refits"] - diag["insufficient"]).sum())
+        high, low = int(diag["clamped_high"].sum()), int(diag["clamped_low"].sum())
+        print("\n=== Student-t df estimation ===")
+        print(diag.to_string(index=False))
+        print(
+            f"\ndf clamps (canary): {high} high + {low} low of {est} estimated refits "
+            f"({(high + low) / est * 100:.1f}%); interior median df "
+            f"{diag['interior_median_df'].median():.2f}"
+        )
+
     report = render_report(coverage, calibrated)
     independence = render_independence_report(coverage, calibrated)
+    student_t = render_student_t_report(coverage, calibrated)
     print()
     print(report)
     print()
     print(independence)
+    print()
+    print(student_t)
     if args.write_readme:
         write_readme_section(report)
         write_independence_section(independence)
-        print("\nREADME VaR + independence sections updated.")
+        write_student_t_section(student_t)
+        print("\nREADME VaR + independence + Student-t sections updated.")
 
 
 if __name__ == "__main__":
