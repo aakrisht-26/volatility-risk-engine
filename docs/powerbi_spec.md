@@ -121,10 +121,11 @@ Formatting: `Kupiec p` 3 decimals; rates/vols 1–2 decimals; dates dd-mmm-yyyy.
 - Note the visual reads annualized-vol units — human-readable per the repo's
   units discipline.
 
-### Page 3 — VaR Breach Tracker ("the crown page")
-Slicers at top: `DimTicker[ticker]` (single-select), `v_var_daily[level]`
-(buttons: 95 / 99). Two identical visual columns, LEFT filtered
-(visual-level) to `model = garch_11`, RIGHT to `model = har_rv_cal`:
+### Page 3 — VaR Breach Tracker
+Slicers at top: `DimTicker[ticker]` (single-select, **default JPM** — the ticker
+whose breaches actually show dependence), `v_var_daily[level]` (buttons: 95 /
+99). Two identical visual columns, LEFT filtered (visual-level) to
+`model = garch_11` (benchmark), RIGHT to `model = har_rv_cal` (featured):
 
 1. **Return-vs-VaR band** — line chart: Axis `DimDate[Date]`; Values
    `log_return_pct` (grey, thin) and `neg_var_threshold` (candidate color).
@@ -153,14 +154,43 @@ model across the dashboard; garch_11 is the stated BENCHMARK on every page
 where both appear** — label them exactly that way in visual titles. Rationale:
 capital dead heat, conservative-side 95% miss, least-bad 99%.
 
-**The one render check that can flip it — breach clustering.** Kupiec tests
-frequency, not independence. On this page's return-vs-VaR band and cumulative
-charts, compare WHERE the two models' breaches fall: if har_rv_cal's breaches
-visibly cluster inside crisis windows (staircase jumps in its cumulative line,
-e.g. around 2020-03 or 2022) while garch_11's spread evenly, the crown is
-revisited. Stretch item, recorded not built: the **Christoffersen (1998)
-independence test** — the natural Kupiec companion that formalizes exactly
-this eyeball check.
+**The crown procedure was revised on 2026-07-21 — this page no longer decides
+it.** The original plan (eyeball whether har_rv_cal's breaches cluster) was
+superseded by the Christoffersen test built to formalize it, which showed the
+eyeball underdetermined: about half of all independence rejections are
+*anti*-clustering (too-regular spacing, which looks healthy to the eye), and the
+genuine clustering is ticker-specific (JPM and XOM only), so whichever ticker
+was on screen would have decided the question. The crown now rests on the
+stored statistics — direction-split independence (genuine clustering only),
+Kupiec coverage, capital cost — and **this page illustrates them rather than
+supplying the verdict.**
+
+Accordingly, add a fourth visual to each column and default the page slicer to
+**JPM**, the ticker where the clustering signal actually lives:
+
+4. **Independence verdict card row** (from `v_var_coverage`, now carrying
+   Christoffersen columns): `n_11` (breaches following a breach), **LR_ind
+   p-value** with conditional formatting red when < 0.05, and **LR_cc
+   p-value**. Add a DAX measure that names the *direction* so a reader never
+   mistakes anti-clustering for clustering:
+
+```DAX
+Breach Dependence =
+VAR Pi01 =
+    DIVIDE ( SUM ( v_var_coverage[n_01] ), SUM ( v_var_coverage[n_00] ) + SUM ( v_var_coverage[n_01] ) )
+VAR Pi11 =
+    DIVIDE ( SUM ( v_var_coverage[n_11] ), SUM ( v_var_coverage[n_10] ) + SUM ( v_var_coverage[n_11] ) )
+RETURN
+    SWITCH (
+        TRUE (),
+        MIN ( v_var_coverage[p_ind] ) >= 0.05, "independent",
+        Pi11 > Pi01, "CLUSTERED (risk failure)",
+        "over-regular (not a risk failure)"
+    )
+```
+
+Show this measure as a card beside the p-value; only "CLUSTERED" counts against
+a model.
 
 ### Page 4 — Model Ablation
 - Matrix: Rows `ticker`, Columns `model`, Values **QLIKE**; second matrix for
