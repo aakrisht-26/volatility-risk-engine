@@ -9,6 +9,10 @@ dist/
 .venv/
 .env
 
+# MLflow local tracking store (optional extra; regenerable from the DB)
+mlruns/
+mlflow.db
+
 # Tooling caches
 .pytest_cache/
 .ruff_cache/
